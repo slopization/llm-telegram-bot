@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { answerMarkdown, renderAnswer } from "../../src/render/answer.ts";
+import { answerMarkdown, appendFooter, renderAnswer } from "../../src/render/answer.ts";
+import { plain } from "../../src/render/formatted.ts";
+
+const usage = {
+  inputTokens: 200,
+  cacheReadTokens: 1000,
+  cacheWriteTokens: 34,
+  outputTokens: 567,
+  webSearches: 0,
+};
 
 describe("renderAnswer", () => {
   it("renders run segments as expandable quotes between text", () => {
@@ -26,5 +35,33 @@ describe("renderAnswer", () => {
         { kind: "text", markdown: "b" },
       ]),
     ).toBe("a\n\nb");
+  });
+});
+
+describe("appendFooter", () => {
+  it("adds an italic model and token footer with cache hits", () => {
+    const rendered = appendFooter(plain("answer"), "codex", "gpt-6-luna", usage);
+
+    expect(rendered.text).toBe(
+      "answer\n\n모델: codex/gpt-6-luna\n토큰: 입력 1,234 (캐시 1,000), 출력 567",
+    );
+    expect(rendered.entities).toEqual([{ type: "italic", offset: 8, length: 52 }]);
+  });
+
+  it("omits the cache part without cache hits", () => {
+    expect(appendFooter(plain("a"), "p", "m", { ...usage, cacheReadTokens: 0 }).text).toBe(
+      "a\n\n모델: p/m\n토큰: 입력 234, 출력 567",
+    );
+  });
+
+  it("shows only the model when usage is unreported", () => {
+    const unreported = {
+      ...usage,
+      inputTokens: 0,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      outputTokens: 0,
+    };
+    expect(appendFooter(plain("a"), "p", "m", unreported).text).toBe("a\n\n모델: p/m");
   });
 });

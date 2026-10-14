@@ -2,7 +2,7 @@ import type { Api } from "grammy";
 import { generateAnswer } from "../pipeline/answer.ts";
 import { buildMessages } from "../pipeline/context.ts";
 import { classifyError, EmptyAnswerError } from "../pipeline/errors.ts";
-import { answerMarkdown, appendText, renderAnswer } from "../render/answer.ts";
+import { answerMarkdown, appendFooter, appendText, renderAnswer } from "../render/answer.ts";
 import { plain } from "../render/formatted.ts";
 import { strings } from "../strings.ts";
 import { type Destination, sendFormatted } from "../telegram/send.ts";
@@ -73,7 +73,9 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
     if (webAvailable && webRemaining <= 0)
       appendText(result.segments, strings.webSearchQuotaNotice);
 
-    const messageIds = await sink.finish(renderAnswer(result.segments));
+    const messageIds = await sink.finish(
+      appendFooter(renderAnswer(result.segments), provider.name, model, result),
+    );
     const answerId = repo.insertNode({
       parentId: prompt.id,
       chatId: destination.chatId,

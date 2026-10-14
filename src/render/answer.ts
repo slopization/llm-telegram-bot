@@ -1,4 +1,5 @@
 import type { MessageEntity } from "grammy/types";
+import type { TokenUsage } from "../providers/types.ts";
 import type { Language } from "../sandbox/run.ts";
 import { strings } from "../strings.ts";
 import { concat, type Formatted, plain } from "./formatted.ts";
@@ -52,4 +53,31 @@ export function renderAnswer(segments: readonly AnswerSegment[]): Formatted {
     parts.push(rendered);
   }
   return concat(...parts);
+}
+
+function count(tokens: number): string {
+  return tokens.toLocaleString("en-US");
+}
+
+function tokenLine(usage: TokenUsage): string | undefined {
+  const input = usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+  if (input === 0 && usage.outputTokens === 0) return undefined;
+  const cached = usage.cacheReadTokens > 0 ? count(usage.cacheReadTokens) : undefined;
+  return strings.tokenUsage(count(input), cached, count(usage.outputTokens));
+}
+
+export function appendFooter(
+  answer: Formatted,
+  provider: string,
+  model: string,
+  usage: TokenUsage,
+): Formatted {
+  const modelLine = strings.modelUsed(provider, model);
+  const tokens = tokenLine(usage);
+  const text = tokens === undefined ? modelLine : `${modelLine}\n${tokens}`;
+  const footer: Formatted = {
+    text,
+    entities: [{ type: "italic", offset: 0, length: text.length }],
+  };
+  return answer.text === "" ? footer : concat(answer, plain("\n\n"), footer);
 }

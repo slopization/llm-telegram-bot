@@ -71,6 +71,12 @@ export const strings = {
   noModels: "모델 목록을 불러오지 못했어요.",
   generating: (model: string) => `${model} 응답 중...`,
 
+  modelUsed: (provider: string, model: string) => `모델: ${provider}/${model}`,
+  tokenUsage: (input: string, cached: string | undefined, output: string) =>
+    cached === undefined
+      ? `토큰: 입력 ${input}, 출력 ${output}`
+      : `토큰: 입력 ${input} (캐시 ${cached}), 출력 ${output}`,
+
   sources: "출처",
   runHeader: (language: string) => `코드 실행 (${language})`,
   runOutputHeader: "출력",
