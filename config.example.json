@@ -1,0 +1,50 @@
+{
+  "timezone": "Asia/Seoul",
+  "telegram": {
+    "bot-token": "",
+    "allowed-user-ids": [],
+    "allowed-chat-ids": [],
+    "draft-interval-ms": 1000
+  },
+  "chat": {
+    "max-context-nodes": 50,
+    "timeout-seconds": 600,
+    "featured-models": "medium"
+  },
+  "providers": [
+    {
+      "name": "claude-platform",
+      "type": "claude",
+      "api-url": "",
+      "api-key": "",
+      "monthly-budget-usd": 100,
+      "budget-reset-day": 1
+    },
+    {
+      "name": "mindlogic",
+      "type": "mindlogic",
+      "api-url": "",
+      "api-key": ""
+    }
+  ],
+  "tools": {
+    "web-search": {
+      "enabled": true,
+      "max-uses-per-request": 3,
+      "daily-limit-per-user": 50
+    }
+  },
+  "sandbox": {
+    "enabled": true,
+    "daily-limit-per-user": 50,
+    "max-runs-per-request": 5,
+    "timeout-seconds": 10,
+    "memory-mb": 512,
+    "cpus": 1,
+    "pids": 128,
+    "disk-mb": 64,
+    "output-chars": 3500,
+    "max-files": 10,
+    "concurrency": 2
+  }
+}

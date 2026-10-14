@@ -1,0 +1,20 @@
+config-version: 8
+
+server:
+  host: ""
+  port: 8317
+
+access:
+  api-keys:
+    - "change-me"
+
+oauth:
+  auth-dir: "~/.cli-proxy-api"
+
+requests:
+  passthrough-headers: true
+
+management:
+  allow-remote: true
+  secret-key: "change-me"
+  disable-control-panel: true
