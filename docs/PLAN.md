@@ -593,6 +593,7 @@ compose.yaml
 - `compose.yaml`은 `config.json`(읽기 전용), `data/`(DB), rootless Docker 소켓(`${XDG_RUNTIME_DIR}/docker.sock`)을 연결한다.
 - rootless Docker에서는 컨테이너 안의 root가 소켓 주인인 호스트 사용자로 매핑된다. 그래서 봇 컨테이너는 root로 실행한다.
 - 개발 머신에서 봇 이미지를 빌드하고, 봇 컨테이너 안에서 샌드박스 실행과 샌드박스 이미지 빌드가 되는 것을 확인했다(2026-10-14).
+- Node는 주소가 여러 개면 주소마다 250ms만 연결을 기다리고 다음 주소로 넘어간다. 개발 머신에서는 `api.telegram.org`의 IPv4 연결에 약 250ms가 걸리고 IPv6는 닿지 않아서, 기본값으로는 8번 중 8번 실패했다. 봇 시작 시 `net.setDefaultAutoSelectFamilyAttemptTimeout(2000)`으로 늘리면 8번 모두 성공했다(2026-10-14). 이 설정은 `fetch`(LLM SDK)와 `node:https`(grammY의 node-fetch) 양쪽에 적용된다.
 
 ## 단계
 
