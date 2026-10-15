@@ -243,7 +243,7 @@ export function parseConfig(value: unknown): Config {
     },
     chat: {
       maxContextNodes: positiveCount(chat["max-context-nodes"], "chat.max-context-nodes", 50),
-      timeoutSeconds: positiveCount(chat["timeout-seconds"], "chat.timeout-seconds", 600),
+      timeoutSeconds: positiveCount(chat["timeout-seconds"], "chat.timeout-seconds", 1800),
       featuredModels: featuredTier(chat["featured-models"]),
     },
     providers: providers(raw.providers),

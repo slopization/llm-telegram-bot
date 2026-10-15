@@ -19,7 +19,7 @@ describe("parseConfig", () => {
     expect(config.telegram.draftIntervalMs).toBe(1000);
     expect(config.chat).toEqual({
       maxContextNodes: 50,
-      timeoutSeconds: 600,
+      timeoutSeconds: 1800,
       featuredModels: "medium",
     });
     expect(config.providers[0]?.apiUrl).toBe("https://api.anthropic.com");

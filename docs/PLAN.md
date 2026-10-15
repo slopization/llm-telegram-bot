@@ -154,7 +154,7 @@ interface ChatProvider {
 - `providerParts`는 벤더 API 응답의 원본 content다. 같은 어댑터로 대화를 이어갈 때 그대로 다시 보낸다. Gemini `thoughtSignature`(함수 호출을 연달아 할 때 필요)와 Claude 서버 도구 블록을 잃지 않으려는 목적이다. 함수 호출을 여러 번 주고받은 답변은 그 왕복 전체를 한 노드의 `providerParts`에 저장한다. 다른 어댑터로 넘어가면 `parts`만 보낸다. 원본이 없는 노드는 `parts`로 대신한다.
 - 검색 출처는 어댑터가 Markdown 링크 목록으로 바꿔 텍스트 끝에 붙인다. 검색어 목록과 중복을 뺀 출처 링크 목록이다.
 - SDK의 자체 재시도(`maxRetries`)로 429, 5xx, 연결 오류를 재시도한다. 스트림이 시작된 뒤의 오류는 재시도하지 않는다.
-- 요청마다 타임아웃(기본 10분)을 둔다. 타임아웃, 정지 버튼, 종료 신호는 모두 같은 AbortSignal로 합친다.
+- 요청마다 타임아웃(기본 30분)을 둔다. 타임아웃, 정지 버튼, 종료 신호는 모두 같은 AbortSignal로 합친다. Anthropic과 OpenAI SDK의 자체 타임아웃(기본 10분)은 응답 헤더를 받으면 해제돼서 스트리밍 중인 답변은 끊지 않는다(SDK 소스 `fetchWithTimeout`, 2026-10-15).
 
 ### 모델 목록
 
@@ -519,7 +519,7 @@ grammY의 `bot.start()`는 업데이트를 하나씩 처리한다. 핸들러가 
   },
   "chat": {
     "max-context-nodes": 50,
-    "timeout-seconds": 600,
+    "timeout-seconds": 1800,
     "featured-models": "medium"
   },
   "providers": [
