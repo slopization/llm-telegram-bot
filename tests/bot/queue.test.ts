@@ -6,7 +6,7 @@ import type { Logger } from "../../src/log.ts";
 const logger = { error: () => undefined } as unknown as Logger;
 const info = (chatId: number, startedAt: number) => ({
   chatId,
-  sender: "@a",
+  sender: "a",
   label: "답변 (m)",
   preview: "q",
   startedAt,
@@ -30,7 +30,7 @@ describe("Tasks", () => {
 describe("queueText", () => {
   it("shows sender, task, age and preview", () => {
     expect(queueText([info(1, 0)], 125_000)).toBe(
-      "이 채팅에서 진행 중인 작업 1개\n1. @a, 답변 (m), 2분 5초 전\n   q",
+      "이 채팅에서 진행 중인 작업 1개\n1. a, 답변 (m), 2분 5초 전\n   q",
     );
   });
 
@@ -40,8 +40,8 @@ describe("queueText", () => {
 });
 
 describe("helpers", () => {
-  it("prefers the username and falls back to the first name", () => {
-    expect(senderName({ id: 1, is_bot: false, first_name: "민재", username: "mj" })).toBe("@mj");
+  it("prefers the username without @ and falls back to the first name", () => {
+    expect(senderName({ id: 1, is_bot: false, first_name: "민재", username: "mj" })).toBe("mj");
     expect(senderName({ id: 1, is_bot: false, first_name: "민재" })).toBe("민재");
   });
 

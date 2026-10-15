@@ -6,7 +6,7 @@ const PREVIEW_CHARS = 40;
 
 export function senderName(user: User | undefined): string {
   if (user === undefined) return strings.queueUnknownSender;
-  return user.username !== undefined ? `@${user.username}` : user.first_name;
+  return user.username ?? user.first_name;
 }
 
 export function preview(text: string): string {
