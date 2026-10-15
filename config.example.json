@@ -32,6 +32,13 @@
       "enabled": true,
       "max-uses-per-request": 3,
       "daily-limit-per-user": 50
+    },
+    "web-fetch": {
+      "enabled": true,
+      "max-uses-per-request": 5,
+      "timeout-seconds": 15,
+      "max-download-mb": 5,
+      "output-chars": 20000
     }
   },
   "sandbox": {

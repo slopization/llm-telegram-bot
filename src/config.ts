@@ -3,6 +3,9 @@ import { readFileSync } from "node:fs";
 export const PROVIDER_TYPES = ["claude", "openai-compatible", "mindlogic"] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
+export const OPENAI_APIS = ["chat-completions", "responses"] as const;
+export type OpenAIApi = (typeof OPENAI_APIS)[number];
+
 export const FEATURED_TIERS = ["cheap", "medium", "expensive"] as const;
 export type FeaturedTier = (typeof FEATURED_TIERS)[number];
 
@@ -20,6 +23,7 @@ export interface ProviderConfig {
   monthlyBudgetUsd: number | undefined;
   budgetResetDay: number;
   managementKey: string | undefined;
+  api: OpenAIApi;
 }
 
 export interface Config {
@@ -38,6 +42,13 @@ export interface Config {
   providers: ProviderConfig[];
   tools: {
     webSearch: { enabled: boolean; maxUsesPerRequest: number; dailyLimitPerUser: number };
+    webFetch: {
+      enabled: boolean;
+      maxUsesPerRequest: number;
+      timeoutSeconds: number;
+      maxDownloadMb: number;
+      outputChars: number;
+    };
   };
   sandbox: {
     enabled: boolean;
@@ -134,6 +145,14 @@ function providerType(value: unknown, path: string): ProviderType {
   return type as ProviderType;
 }
 
+function openAIApi(value: unknown, path: string): OpenAIApi {
+  const api = string(value, path, "chat-completions");
+  if (!(OPENAI_APIS as readonly string[]).includes(api)) {
+    throw new ConfigError(path, `must be one of ${OPENAI_APIS.join(", ")}`);
+  }
+  return api as OpenAIApi;
+}
+
 function provider(value: unknown, path: string): ProviderConfig {
   const raw = object(value, path);
   const type = providerType(raw.type, `${path}.type`);
@@ -155,6 +174,7 @@ function provider(value: unknown, path: string): ProviderConfig {
         : positiveNumber(raw["monthly-budget-usd"], budgetPath, 0),
     budgetResetDay: resetDay,
     managementKey: string(raw["management-key"], `${path}.management-key`, "") || undefined,
+    api: openAIApi(raw.api, `${path}.api`),
   };
 }
 
@@ -186,6 +206,18 @@ function sandbox(value: unknown): Config["sandbox"] {
     outputChars: positiveCount(...at("output-chars"), 3500),
     maxFiles: count(...at("max-files"), 10),
     concurrency: positiveCount(...at("concurrency"), 2),
+  };
+}
+
+function webFetch(value: unknown): Config["tools"]["webFetch"] {
+  const raw = value === undefined ? {} : object(value, "tools.web-fetch");
+  const at = (key: string) => [raw[key], `tools.web-fetch.${key}`] as const;
+  return {
+    enabled: boolean(...at("enabled"), true),
+    maxUsesPerRequest: count(...at("max-uses-per-request"), 5),
+    timeoutSeconds: positiveCount(...at("timeout-seconds"), 15),
+    maxDownloadMb: positiveNumber(...at("max-download-mb"), 5),
+    outputChars: positiveCount(...at("output-chars"), 20000),
   };
 }
 
@@ -229,6 +261,7 @@ export function parseConfig(value: unknown): Config {
           50,
         ),
       },
+      webFetch: webFetch(tools["web-fetch"]),
     },
     sandbox: sandbox(raw.sandbox),
   };

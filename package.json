@@ -24,11 +24,13 @@
     "grammy": "^1.46.0",
     "marked": "^18.1.1",
     "openai": "^7.32.0",
-    "pino": "^10.4.0"
+    "pino": "^10.4.0",
+    "turndown": "7.2.4"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",
     "@types/node": "^24.19.2",
+    "@types/turndown": "5.0.6",
     "typescript": "^7.0.2",
     "vitest": "^5.0.4"
   }

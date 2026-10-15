@@ -8,6 +8,7 @@ import { strings } from "../strings.ts";
 import { type Destination, sendFormatted } from "../telegram/send.ts";
 import { type AnswerSink, DraftSink, GroupSink } from "../telegram/sinks.ts";
 import { dayOf } from "../time.ts";
+import { fetchToolResult } from "../web/tool.ts";
 import type { Deps } from "./deps.ts";
 
 export interface AnswerJob {
@@ -53,6 +54,8 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
       model,
       maxOutputTokens: info?.maxOutputTokens,
       messages: buildMessages(repo.chain(prompt.id, config.chat.maxContextNodes), adapter.kind),
+      today: day,
+      timeZone: config.timezone,
       webSearch:
         webAvailable && webRemaining > 0
           ? { maxUses: Math.min(webConfig.maxUsesPerRequest, webRemaining) }
@@ -65,6 +68,16 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
               runsAllowed: Math.min(config.sandbox.maxRunsPerRequest, runsRemaining),
             }
           : undefined,
+      webFetch: config.tools.webFetch.enabled
+        ? {
+            fetchesAllowed: config.tools.webFetch.maxUsesPerRequest,
+            fetch: async (url, signal) => {
+              const text = await fetchToolResult(url, config.tools.webFetch, signal);
+              logger.info({ url, failed: text.startsWith("Error:") }, "web page fetched");
+              return text;
+            },
+          }
+        : undefined,
       signal: AbortSignal.any([deps.shutdown, timeout]),
       onUpdate: (segments) => sink.update(renderAnswer(segments)),
       costOf: provider.costOf && ((usage) => provider.costOf?.(model, usage)),
@@ -108,6 +121,7 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
         inputTokens: result.inputTokens,
         outputTokens: result.outputTokens,
         sandboxRuns: result.sandboxRuns,
+        webFetches: result.webFetches,
       },
       "answered",
     );

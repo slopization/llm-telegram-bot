@@ -15,6 +15,8 @@ export const strings = {
     bash: "Bash 스크립트 실행",
     usage: "오늘 사용량",
     budget: "provider별 남은 예산",
+    models: "provider별 모델 목록",
+    queue: "이 채팅에서 진행 중인 작업",
   },
   commandUsages: {
     start: "/start",
@@ -25,6 +27,8 @@ export const strings = {
     bash: "/bash 스크립트 (스크립트가 담긴 메시지에 답장하면서 /bash 만 보내도 돼요)",
     usage: "/usage",
     budget: "/budget",
+    models: "/models",
+    queue: "/queue",
   },
   aliasDescription: (name: string, description: string) => `/${name}의 별칭. ${description}`,
 
@@ -45,6 +49,22 @@ export const strings = {
   quotaHours: (hours: number) => `${hours}시간`,
   quotaMinutes: (minutes: number) => `${minutes}분`,
   budgetFailed: (name: string) => `${name}: 잔액을 불러오지 못했어요.`,
+
+  modelsTitle: "모델 목록 (출력 100만 토큰당 가격)",
+  modelsHeader: (provider: string, count: number) => `${provider} (${count}개)`,
+  modelsLine: (model: string, price: string | undefined) =>
+    price === undefined ? `- ${model}` : `- ${model} ($${price})`,
+  modelsFailed: (provider: string) => `${provider}: 모델 목록을 불러오지 못했어요.`,
+
+  queueTitle: (count: number) => `이 채팅에서 진행 중인 작업 ${count}개`,
+  queueEmpty: "이 채팅에서 진행 중인 작업이 없어요.",
+  queueLine: (index: number, sender: string, label: string, elapsed: string, preview: string) =>
+    `${index}. ${sender}, ${label}, ${elapsed} 전\n   ${preview}`,
+  queueUnknownSender: "알 수 없음",
+  queueSeconds: (seconds: number) => `${seconds}초`,
+  queueMinutes: (minutes: number, seconds: number) => `${minutes}분 ${seconds}초`,
+  queueAnswer: (model: string) => `답변 (${model})`,
+  queueCode: (language: string) => `코드 실행 (${language})`,
 
   askUsage: "명령어와 함께 질문을 입력하거나, 내용이 있는 메시지에 답장하며 사용해 주세요.",
   replyNeedsText: "봇의 답변에는 내용을 입력해서 답장해 주세요.",

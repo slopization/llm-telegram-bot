@@ -22,7 +22,7 @@ import type {
 
 export const USER_AGENT = "llm-telegram-bot";
 
-const MODEL_LIST_TTL_MS = 60 * 60 * 1000;
+const MODEL_LIST_TTL_MS = 60 * 1000;
 
 export function adapterKindFromEndpoints(endpoints: readonly string[]): AdapterKind {
   if (endpoints.some((endpoint) => endpoint.includes("/claude/"))) return "anthropic";
@@ -79,9 +79,13 @@ function openAICompatibleProvider(config: ProviderConfig, logger: Logger | undef
   const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.apiUrl });
   const prices = new OpenAIPrices(logger);
   let quota: QuotaSnapshot | undefined;
-  const adapter = new OpenAIChatAdapter(client, (headers) => {
+  const onHeaders = (headers: Headers) => {
     quota = parseCodexQuota(headers, Date.now()) ?? quota;
-  });
+  };
+  const responses = config.api === "responses";
+  const adapter: ChatAdapter = responses
+    ? new OpenAIResponsesAdapter(client, { onHeaders, limitsToolCalls: false })
+    : new OpenAIChatAdapter(client, onHeaders);
   const models = new CachedModels(async () => {
     await prices.refreshIfStale();
     const result: ModelInfo[] = [];
@@ -90,7 +94,7 @@ function openAICompatibleProvider(config: ProviderConfig, logger: Logger | undef
         id: model.id,
         vendor: model.owned_by || config.name,
         outputPricePerMTok: prices.output(model.id),
-        webSearch: false,
+        webSearch: responses,
         maxOutputTokens: undefined,
         legacy: false,
       });

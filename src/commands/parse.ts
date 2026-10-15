@@ -1,4 +1,15 @@
-export const COMMANDS = ["start", "help", "ask", "py", "js", "bash", "usage", "budget"] as const;
+export const COMMANDS = [
+  "start",
+  "help",
+  "ask",
+  "py",
+  "js",
+  "bash",
+  "usage",
+  "budget",
+  "models",
+  "queue",
+] as const;
 export type CommandName = (typeof COMMANDS)[number];
 
 export const ALIASES: Record<string, CommandName> = { a: "ask" };

@@ -5,6 +5,9 @@ import { parseCommand } from "../commands/parse.ts";
 import type { NodeRecord, PendingRecord } from "../db/repo.ts";
 import { page, representatives, sortModels } from "../providers/models.ts";
 import type { ModelInfo } from "../providers/types.ts";
+import { plain } from "../render/formatted.ts";
+import { LANGUAGE_LABELS } from "../render/run.ts";
+import { split } from "../render/split.ts";
 import { extractCode } from "../sandbox/code.ts";
 import type { Language } from "../sandbox/run.ts";
 import { strings } from "../strings.ts";
@@ -23,6 +26,8 @@ import {
   type Selection,
   topModelsKeyboard,
 } from "./keyboards.ts";
+import { modelsText } from "./models.ts";
+import { preview, queueText, senderName } from "./queue.ts";
 
 const CHAIN_KINDS = new Set(["prompt", "answer"]);
 
@@ -112,6 +117,13 @@ async function continueChain(
       destination: destinationOf(message, message.message_id),
       userId: message.from?.id ?? 0,
     }),
+    {
+      chatId: message.chat.id,
+      sender: senderName(message.from),
+      label: strings.queueAnswer(parent.model),
+      preview: preview(text),
+      startedAt: Date.now(),
+    },
   );
 }
 
@@ -195,6 +207,13 @@ async function handleCode(
       language,
       code,
     }),
+    {
+      chatId: message.chat.id,
+      sender: senderName(message.from),
+      label: strings.queueCode(LANGUAGE_LABELS[language]),
+      preview: preview(code),
+      startedAt: Date.now(),
+    },
   );
 }
 
@@ -250,6 +269,14 @@ async function onMessage(ctx: Context, deps: Deps) {
     case "budget":
       await replyText(ctx, await budgetText(deps));
       return;
+    case "models":
+      for (const chunk of split(plain(await modelsText(deps.providers, deps.logger)))) {
+        await replyText(ctx, chunk.text);
+      }
+      return;
+    case "queue":
+      await replyText(ctx, queueText(deps.tasks.inChat(message.chat.id), Date.now()));
+      return;
   }
 }
 
@@ -288,6 +315,13 @@ async function choose(
       },
       userId: pending.userId,
     }),
+    {
+      chatId: pending.chatId,
+      sender: senderName(ctx.from),
+      label: strings.queueAnswer(model),
+      preview: preview(deps.repo.node(pending.nodeId)?.text ?? ""),
+      startedAt: Date.now(),
+    },
   );
 }
 

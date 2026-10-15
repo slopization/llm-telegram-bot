@@ -68,6 +68,25 @@ describe("parseConfig", () => {
     expect(provider("")).toBeUndefined();
   });
 
+  it("reads the openai api with chat completions as default", () => {
+    const api = (value?: string) =>
+      parseConfig(
+        withProviders({
+          name: "codex",
+          type: "openai-compatible",
+          "api-url": "http://localhost:8317/v1",
+          "api-key": "k",
+          ...(value !== undefined ? { api: value } : {}),
+        }),
+      ).providers[0]?.api;
+
+    expect(api()).toBe("chat-completions");
+    expect(api("responses")).toBe("responses");
+    expect(() => api("assistants")).toThrow(
+      "config.providers[0].api: must be one of chat-completions, responses",
+    );
+  });
+
   it("rejects a reset day past 31", () => {
     expect(() =>
       parseConfig(

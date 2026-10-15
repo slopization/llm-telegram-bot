@@ -75,10 +75,33 @@ function request(adapter: ChatAdapter, runner: Sandbox | undefined, runsAllowed 
     adapter,
     model: "m",
     messages: [{ role: "user" as const, text: "q" }],
+    today: "2026-10-15",
+    timeZone: "Asia/Seoul",
     webSearch: undefined,
     sandbox: runner === undefined ? undefined : { runner, limits, runsAllowed },
+    webFetch: undefined,
     signal: new AbortController().signal,
     onUpdate: () => undefined,
+  };
+}
+
+const fetchCall = (id: string, url: unknown = "https://example.com"): ToolCall => ({
+  id,
+  name: "web_fetch",
+  arguments: { url },
+});
+
+function fakeFetch(fetchesAllowed = 5) {
+  const urls: string[] = [];
+  return {
+    urls,
+    webFetch: {
+      fetchesAllowed,
+      fetch: async (url: string) => {
+        urls.push(url);
+        return `page ${url}`;
+      },
+    },
   };
 }
 
@@ -90,6 +113,8 @@ describe("generateAnswer", () => {
 
     expect(result.segments).toEqual([{ kind: "text", markdown: "hello" }]);
     expect(requests[0]?.functions).toEqual([]);
+    expect(requests[0]?.system).toContain("Today is 2026-10-15 (Thursday, Asia/Seoul).");
+    expect(requests[0]?.system).not.toContain("tools");
     expect(result.transcript).toHaveLength(1);
     expect(result.costUsd).toBeUndefined();
   });
@@ -153,5 +178,55 @@ describe("generateAnswer", () => {
     await generateAnswer(request(adapter, runner, 2));
 
     expect(requests).toHaveLength(4);
+  });
+
+  it("fetches requested pages and feeds the text back", async () => {
+    const { adapter, requests } = scriptedAdapter([
+      { text: "", toolCalls: [fetchCall("f1")] },
+      { text: "read it" },
+    ]);
+    const { urls, webFetch } = fakeFetch();
+
+    const result = await generateAnswer({ ...request(adapter, undefined), webFetch });
+
+    expect(urls).toEqual(["https://example.com"]);
+    expect(result.webFetches).toBe(1);
+    expect(requests[0]?.functions.map((tool) => tool.name)).toEqual(["web_fetch"]);
+    expect(requests[0]?.system).toContain("without asking first: web_fetch.");
+    expect(requests[1]?.messages.at(-1)).toMatchObject({
+      role: "tool",
+      callId: "f1",
+      text: "page https://example.com",
+    });
+  });
+
+  it("refuses fetches beyond the allowed count and invalid urls", async () => {
+    const { adapter, requests } = scriptedAdapter([
+      { text: "", toolCalls: [fetchCall("f1"), fetchCall("f2", 42), fetchCall("f3")] },
+      { text: "done" },
+    ]);
+    const { urls, webFetch } = fakeFetch(1);
+
+    await generateAnswer({ ...request(adapter, undefined), webFetch });
+
+    expect(urls).toHaveLength(1);
+    const texts = (requests[1]?.messages ?? []).flatMap((message) =>
+      message.role === "tool" ? [message.text] : [],
+    );
+    expect(texts[1]).toContain("Invalid tool call");
+    expect(texts[2]).toContain("limit");
+  });
+
+  it("answers unknown tools without running anything", async () => {
+    const { adapter, requests } = scriptedAdapter([
+      { text: "", toolCalls: [runCall("c1")] },
+      { text: "done" },
+    ]);
+    const { urls, webFetch } = fakeFetch();
+
+    await generateAnswer({ ...request(adapter, undefined), webFetch });
+
+    expect(urls).toEqual([]);
+    expect(requests[1]?.messages.at(-1)).toMatchObject({ text: "Unknown tool: run_code" });
   });
 });

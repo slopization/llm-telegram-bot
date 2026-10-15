@@ -56,13 +56,22 @@ function urlCitations(response: Response): Source[] {
   );
 }
 
+export interface ResponsesOptions {
+  onHeaders?: (headers: Headers) => void;
+  limitsToolCalls?: boolean;
+}
+
 export class OpenAIResponsesAdapter implements ChatAdapter {
   readonly kind = "openai-responses";
   readonly supportsWebSearch = true;
   private readonly client: OpenAI;
+  private readonly onHeaders: ((headers: Headers) => void) | undefined;
+  private readonly limitsToolCalls: boolean;
 
-  constructor(client: OpenAI) {
+  constructor(client: OpenAI, options: ResponsesOptions = {}) {
     this.client = client;
+    this.onHeaders = options.onHeaders;
+    this.limitsToolCalls = options.limitsToolCalls ?? true;
   }
 
   async *stream(request: ChatRequest, signal: AbortSignal): AsyncIterable<ChatEvent> {
@@ -81,9 +90,14 @@ export class OpenAIResponsesAdapter implements ChatAdapter {
       stream: true,
       ...(request.system !== undefined ? { instructions: request.system } : {}),
       ...(tools.length > 0 ? { tools } : {}),
-      ...(request.webSearch !== undefined ? { max_tool_calls: request.webSearch.maxUses } : {}),
+      ...(request.webSearch !== undefined && this.limitsToolCalls
+        ? { max_tool_calls: request.webSearch.maxUses }
+        : {}),
     };
-    const stream = await this.client.responses.create(params, { signal });
+    const { data: stream, response } = await this.client.responses
+      .create(params, { signal })
+      .withResponse();
+    this.onHeaders?.(response.headers);
 
     let final: Response | undefined;
     for await (const event of stream) {
