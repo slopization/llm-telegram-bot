@@ -237,7 +237,7 @@ async function onMessage(ctx: Context, deps: Deps) {
   const command = parseCommand(text, ctx.me.username);
   if (command === undefined) {
     const reply = realReply(message);
-    if (reply === undefined || message.text === undefined) return;
+    if (reply === undefined || message.text === undefined || reply.from?.id !== ctx.me.id) return;
     const node = deps.repo.nodeByMessage(message.chat.id, reply.message_id);
     if (node !== undefined && CHAIN_KINDS.has(node.kind)) {
       await continueChain(ctx, deps, message, node, message.text);
