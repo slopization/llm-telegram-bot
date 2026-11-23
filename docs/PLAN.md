@@ -170,6 +170,7 @@ interface ChatProvider {
 
 - 벤더마다 모델 하나만 보여준다. Claude provider는 벤더가 Anthropic 하나라서 버튼도 하나다. legacy 모델은 그 벤더에 current 모델이 있으면 고르지 않는다.
 - 어떤 모델을 고를지는 `chat.featured-models`로 정한다. 가격 기준은 출력 토큰 단가다.
+- provider에 `top-models`가 있으면 위 규칙 대신 그 모델들을 적힌 순서대로 보여준다. 목록에 없는 ID는 건너뛰고, 하나도 없으면 위 규칙으로 돌아간다.
 
 | 값 | 고르는 모델 | Claude 예시(Haiku 5.5, Sonnet 5.5, Opus 5.5, Fable 5.1) |
 |---|---|---|
@@ -577,6 +578,7 @@ grammY의 `bot.start()`는 업데이트를 하나씩 처리한다. 핸들러가 
 - `api`는 `openai-compatible`이 쓸 OpenAI API다. `chat-completions`(기본값)나 `responses`를 넣는다. `responses`면 그 provider의 모든 모델에서 서버 쪽 웹 검색을 켠다.
 - `monthly-budget-usd`와 `budget-reset-day`는 잔액 API가 없는 provider의 월 예산과 갱신일이다. `/budget`에서 남은 예산을 추정하는 데 쓴다. Max 크레딧은 결제일에 지급되므로 `budget-reset-day`에 결제일을 넣는다.
 - `draft-interval-ms`는 1:1 대화에서 드래프트를 갱신하는 최소 간격이다. `max-context-nodes`는 체인을 따라 올라갈 최대 노드 수, `timeout-seconds`는 답변 하나에 걸 수 있는 최대 시간이다. `featured-models`는 모델 버튼 1페이지에 보일 모델의 가격대(`cheap`, `medium`, `expensive`)다.
+- `top-models`는 모델 버튼 1페이지에 보일 모델 ID 목록이다. 모든 provider에 쓸 수 있고, 생략하면 `featured-models` 규칙을 쓴다.
 - `telegram`과 `providers`를 뺀 항목은 생략하면 기본값을 쓴다.
 - `name`은 provider 버튼에 보이는 이름이고, 체인 노드의 `provider` 값으로도 저장된다.
 - 같은 type을 여러 번 등록할 수 있다(예: 키가 다른 Claude 조직 두 개).

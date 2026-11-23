@@ -30,6 +30,7 @@ export interface ProviderConfig {
   budgetResetDay: number;
   managementKey: string | undefined;
   api: OpenAIApi;
+  topModels: string[];
 }
 
 export interface Config {
@@ -135,6 +136,14 @@ function ids(value: unknown, path: string): number[] {
   return value as number[];
 }
 
+function stringList(value: unknown, path: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string" && item !== "")) {
+    throw new ConfigError(path, "must be an array of non-empty strings");
+  }
+  return value as string[];
+}
+
 function featuredTier(value: unknown): FeaturedTier {
   const tier = string(value, "chat.featured-models", "medium");
   if (!(FEATURED_TIERS as readonly string[]).includes(tier)) {
@@ -181,6 +190,7 @@ function provider(value: unknown, path: string): ProviderConfig {
     budgetResetDay: resetDay,
     managementKey: string(raw["management-key"], `${path}.management-key`, "") || undefined,
     api: openAIApi(raw.api, `${path}.api`),
+    topModels: stringList(raw["top-models"], `${path}.top-models`),
   };
 }
 

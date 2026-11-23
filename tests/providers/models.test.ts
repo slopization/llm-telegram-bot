@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isChatModel, page, representatives, sortModels } from "../../src/providers/models.ts";
+import {
+  isChatModel,
+  page,
+  representatives,
+  sortModels,
+  topModels,
+} from "../../src/providers/models.ts";
 import type { ModelInfo } from "../../src/providers/types.ts";
 
 function model(id: string, vendor: string, outputPricePerMTok?: number, legacy = false): ModelInfo {
@@ -17,6 +23,20 @@ const catalog = [
 ];
 
 const ids = (models: ModelInfo[]) => models.map((m) => m.id);
+
+describe("topModels", () => {
+  it("uses configured models in config order and skips unknown ids", () => {
+    expect(ids(topModels(catalog, ["mid", "missing", "haiku"], "medium"))).toEqual([
+      "mid",
+      "haiku",
+    ]);
+  });
+
+  it("falls back to representatives when no configured model exists", () => {
+    expect(ids(topModels(catalog, [], "medium"))).toEqual(["sonnet", "mid"]);
+    expect(ids(topModels(catalog, ["missing"], "cheap"))).toEqual(["haiku", "mini"]);
+  });
+});
 
 describe("representatives", () => {
   it("picks the lower median by output price per vendor for medium", () => {

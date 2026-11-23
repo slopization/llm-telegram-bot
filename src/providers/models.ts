@@ -46,6 +46,15 @@ export function representatives(models: readonly ModelInfo[], tier: FeaturedTier
   return picks;
 }
 
+export function topModels(
+  models: readonly ModelInfo[],
+  configured: readonly string[],
+  tier: FeaturedTier,
+): ModelInfo[] {
+  const picks = configured.flatMap((id) => models.filter((model) => model.id === id));
+  return picks.length > 0 ? picks : representatives(models, tier);
+}
+
 export function page<T>(items: readonly T[], index: number, size: number) {
   const pages = Math.max(1, Math.ceil(items.length / size));
   const current = Math.min(Math.max(index, 0), pages - 1);

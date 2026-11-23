@@ -3,7 +3,7 @@ import type { Bot, Context, Filter } from "grammy";
 import type { Message } from "grammy/types";
 import { parseCommand } from "../commands/parse.ts";
 import type { Attachment, NodeRecord, PendingRecord, PromptMode } from "../db/repo.ts";
-import { page, representatives, sortModels } from "../providers/models.ts";
+import { page, sortModels, topModels } from "../providers/models.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import { plain } from "../render/formatted.ts";
 import { LANGUAGE_LABELS } from "../render/run.ts";
@@ -402,7 +402,11 @@ async function showModels(
       reply_markup: topModelsKeyboard(
         selection.id,
         selection.provider,
-        representatives(models, deps.config.chat.featuredModels).map(button),
+        topModels(
+          models,
+          deps.config.providers[selection.provider]?.topModels ?? [],
+          deps.config.chat.featuredModels,
+        ).map(button),
       ),
     });
     return true;

@@ -87,6 +87,24 @@ describe("parseConfig", () => {
     );
   });
 
+  it("reads top models with an empty default", () => {
+    const top = (value?: unknown) =>
+      parseConfig(
+        withProviders({
+          name: "c",
+          type: "claude",
+          "api-key": "k",
+          ...(value !== undefined ? { "top-models": value } : {}),
+        }),
+      ).providers[0]?.topModels;
+
+    expect(top()).toEqual([]);
+    expect(top(["a", "b"])).toEqual(["a", "b"]);
+    expect(() => top(["a", ""])).toThrow(
+      "config.providers[0].top-models: must be an array of non-empty strings",
+    );
+  });
+
   it("rejects a reset day past 31", () => {
     expect(() =>
       parseConfig(
