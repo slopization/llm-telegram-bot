@@ -25,6 +25,12 @@
       "type": "mindlogic",
       "api-url": "",
       "api-key": ""
+    },
+    {
+      "name": "google-ai-studio",
+      "type": "google-ai-studio",
+      "api-url": "",
+      "api-key": ""
     }
   ],
   "tools": {

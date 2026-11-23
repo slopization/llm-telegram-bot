@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { answerMarkdown, appendFooter, renderAnswer } from "../../src/render/answer.ts";
-import { plain } from "../../src/render/formatted.ts";
+import {
+  answerMarkdown,
+  appendFooter,
+  DETAILS_MARKER,
+  renderAnswer,
+} from "../../src/render/answer.ts";
+import { type Formatted, plain } from "../../src/render/formatted.ts";
+
+function entityTypes(formatted: Formatted): string[] {
+  return formatted.entities.map((entity) => entity.type);
+}
 
 const usage = {
   inputTokens: 200,
@@ -25,6 +34,52 @@ describe("renderAnswer", () => {
       "bold",
       "bold",
     ]);
+  });
+
+  it("folds everything after the marker into one expandable quote", () => {
+    const rendered = renderAnswer([
+      { kind: "text", markdown: `짧은 **답**\n\n${DETAILS_MARKER}\n\n## 근거\n\n- \`x\` 하나` },
+    ]);
+
+    expect(rendered.text).toBe("짧은 답\n\n근거\n\n- x 하나");
+    expect(entityTypes(rendered)).toEqual(["bold", "expandable_blockquote", "bold"]);
+    expect(rendered.entities[1]).toMatchObject({ offset: 6, length: 10 });
+  });
+
+  it("folds run segments before the lead behind it without nesting quotes", () => {
+    const rendered = renderAnswer([
+      { kind: "text", markdown: "계산" },
+      { kind: "run", language: "python", code: "print(42)", output: "42" },
+      { kind: "text", markdown: `답은 42\n${DETAILS_MARKER}\n설명` },
+    ]);
+
+    expect(rendered.text).toBe(
+      "답은 42\n\n계산\n\n코드 실행 (Python)\nprint(42)\n\n출력\n42\n\n설명",
+    );
+    expect(entityTypes(rendered)).toEqual(["expandable_blockquote", "bold", "bold"]);
+  });
+
+  it("renders flat without a lead before the marker", () => {
+    expect(renderAnswer([{ kind: "text", markdown: `${DETAILS_MARKER}\n전문` }])).toEqual({
+      text: "전문",
+      entities: [],
+    });
+  });
+
+  it("shows only the lead when nothing follows the marker", () => {
+    expect(renderAnswer([{ kind: "text", markdown: `짧은 답\n${DETAILS_MARKER}\n` }])).toEqual({
+      text: "짧은 답",
+      entities: [],
+    });
+  });
+
+  it("folds at the first marker and drops the rest", () => {
+    const rendered = renderAnswer([
+      { kind: "text", markdown: `요약\n${DETAILS_MARKER}\n앞\n\n${DETAILS_MARKER}\n\n뒤` },
+    ]);
+
+    expect(rendered.text).toBe("요약\n\n앞\n\n뒤");
+    expect(entityTypes(rendered)).toEqual(["expandable_blockquote"]);
   });
 
   it("keeps only text segments in the stored markdown", () => {

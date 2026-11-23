@@ -27,7 +27,20 @@ function toInput(messages: readonly ChatMessage[]): ResponseInputItem[] {
           })),
         ];
       default:
-        return [{ role: "user", content: message.text }];
+        if (message.images === undefined) return [{ role: "user", content: message.text }];
+        return [
+          {
+            role: "user",
+            content: [
+              ...message.images.map((image) => ({
+                type: "input_image" as const,
+                detail: "auto" as const,
+                image_url: `data:${image.mime};base64,${image.data.toString("base64")}`,
+              })),
+              ...(message.text !== "" ? [{ type: "input_text" as const, text: message.text }] : []),
+            ],
+          },
+        ];
     }
   });
 }

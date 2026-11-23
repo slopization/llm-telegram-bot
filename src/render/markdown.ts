@@ -1,5 +1,5 @@
 import type { MessageEntity } from "grammy/types";
-import { marked, type Token, type Tokens } from "marked";
+import { Marked, type Token, Tokenizer, type Tokens } from "marked";
 import { type Formatted, trimEnd } from "./formatted.ts";
 
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -16,6 +16,26 @@ const HTML_ENTITIES: Record<string, string> = {
   "&#39;": "'",
   "&nbsp;": " ",
 };
+
+const CJK = String.raw`\p{sc=Hangul}\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}`;
+const PUNCT_BEFORE_CJK_CLOSER = new RegExp(String.raw`(?!\*)[\p{P}\p{S}](?=\*+[${CJK}])`, "gu");
+const CJK_CHAR = new RegExp(`^[${CJK}]$`, "u");
+
+// CommonMark flanking rules reject `**O(n)**이` and `은**"인용"**`, because CJK text attaches
+// particles to `**` without spaces. marked scans the masked copy only for closing delimiters,
+// so a same-length letter in place of the punctuation makes the run closable.
+const markdownParser = new Marked({
+  gfm: true,
+  hooks: {
+    emStrongMask: (src) => src.replace(PUNCT_BEFORE_CJK_CLOSER, (p) => "a".repeat(p.length)),
+  },
+  tokenizer: {
+    emStrong(src, maskedSrc, prevChar) {
+      if (!src.startsWith("*") || !CJK_CHAR.test(prevChar ?? "")) return false;
+      return Tokenizer.prototype.emStrong.call(this, src, maskedSrc, "");
+    },
+  },
+});
 
 function decodeEntities(text: string): string {
   return text.replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, (match) => HTML_ENTITIES[match] ?? match);
@@ -50,7 +70,11 @@ function displayWidth(text: string): number {
 class Renderer {
   private text = "";
   private readonly entities: MessageEntity[] = [];
-  private readonly open: string[] = [];
+  private readonly open: string[];
+
+  constructor(open: string[] = []) {
+    this.open = open;
+  }
 
   result(): Formatted {
     return trimEnd({ text: this.text, entities: this.entities });
@@ -256,8 +280,8 @@ class Renderer {
   }
 }
 
-export function renderMarkdown(markdown: string): Formatted {
-  const renderer = new Renderer();
-  renderer.blocks(marked.lexer(markdown, { gfm: true }));
+export function renderMarkdown(markdown: string, insideQuote = false): Formatted {
+  const renderer = new Renderer(insideQuote ? ["blockquote"] : []);
+  renderer.blocks(markdownParser.lexer(markdown));
   return renderer.result();
 }

@@ -17,8 +17,10 @@ export interface ToolCall {
   arguments: unknown;
 }
 
+export type ImageInput = Omit<Extract<Part, { type: "image" }>, "type">;
+
 export type ChatMessage =
-  | { role: "user"; text: string }
+  | { role: "user"; text: string; images?: ImageInput[] }
   | { role: "assistant"; text: string; native?: unknown; toolCalls?: ToolCall[] }
   | { role: "tool"; callId: string; name: string; text: string };
 

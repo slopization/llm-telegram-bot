@@ -78,9 +78,12 @@ async function providerLine(deps: Deps, index: number, today: string): Promise<s
       ? strings.budgetQuotaPending(provider.name)
       : quotaLine(provider.name, snapshot, deps.config.timezone);
   }
-  if (provider.costOf !== undefined && config.monthlyBudgetUsd !== undefined) {
+  if (provider.costOf !== undefined) {
     const since = periodStart(today, config.budgetResetDay);
     const spent = deps.repo.spentSince(provider.name, since);
+    if (config.monthlyBudgetUsd === undefined) {
+      return strings.budgetSpent(provider.name, amount(spent), since);
+    }
     return strings.budgetEstimate(
       provider.name,
       amount(Math.max(0, config.monthlyBudgetUsd - spent)),

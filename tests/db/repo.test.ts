@@ -45,6 +45,18 @@ describe("Repo", () => {
     expect(repo.chain(left, 50).map((n) => n.text)).toEqual(["root", "left"]);
   });
 
+  it("round-trips attachments grouped by node", () => {
+    const first = repo.insertNode(node());
+    const second = repo.insertNode(node({ parentId: first }));
+    const image = { fileUniqueId: "u1", mime: "image/jpeg", data: Buffer.from([1, 2, 3]) };
+    repo.addAttachments(second, [image]);
+
+    const attachments = repo.attachments([first, second]);
+
+    expect(attachments.get(first)).toBeUndefined();
+    expect(attachments.get(second)).toEqual([image]);
+  });
+
   it("finds nodes by any linked message", () => {
     const answer = repo.insertNode(node({ kind: "answer" }));
     repo.linkMessages(1, [100, 101], answer);
@@ -88,6 +100,14 @@ describe("Repo", () => {
     repo.insertNode(node({ kind: "answer", provider: "other", costUsd: 9, day: "2026-10-14" }));
 
     expect(repo.spentSince("claude", "2026-10-07")).toBeCloseTo(2);
+  });
+
+  it("stores the prompt mode, null by default", () => {
+    const plainId = repo.insertNode(node());
+    const summaryId = repo.insertNode(node({ mode: "summarize" }));
+
+    expect(repo.node(plainId)?.mode).toBeNull();
+    expect(repo.node(summaryId)?.mode).toBe("summarize");
   });
 
   it("upserts preferences", () => {

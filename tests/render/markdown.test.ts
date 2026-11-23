@@ -82,6 +82,25 @@ describe("renderMarkdown", () => {
     expect(entityText("text\n\n```py\nprint(1)")).toEqual([{ type: "pre", text: "print(1)" }]);
   });
 
+  it("closes emphasis after punctuation when a CJK particle follows", () => {
+    expect(entityText("총 **O(E log E)**가 소요됩니다.")).toEqual([
+      { type: "bold", text: "O(E log E)" },
+    ]);
+    expect(entityText("**굵게(괄호)**입니다 *기울(임)*이")).toEqual([
+      { type: "bold", text: "굵게(괄호)" },
+      { type: "italic", text: "기울(임)" },
+    ]);
+    expect(entityText("좋아요**👍**입니다")).toEqual([{ type: "bold", text: "👍" }]);
+  });
+
+  it("opens emphasis before punctuation when a CJK character precedes", () => {
+    expect(entityText('이것은**"인용"**입니다')).toEqual([{ type: "bold", text: '"인용"' }]);
+  });
+
+  it("keeps non-CJK flanking rules", () => {
+    expect(renderMarkdown("**foo(bar)**baz")).toEqual({ text: "**foo(bar)**baz", entities: [] });
+  });
+
   it("trims trailing whitespace", () => {
     expect(renderMarkdown("a\n\n\n").text).toBe("a");
   });

@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 
-export const PROVIDER_TYPES = ["claude", "openai-compatible", "mindlogic"] as const;
+export const PROVIDER_TYPES = [
+  "claude",
+  "openai-compatible",
+  "mindlogic",
+  "google-ai-studio",
+] as const;
 export type ProviderType = (typeof PROVIDER_TYPES)[number];
 
 export const OPENAI_APIS = ["chat-completions", "responses"] as const;
@@ -13,6 +18,7 @@ const DEFAULT_API_URLS: Record<ProviderType, string | undefined> = {
   claude: "https://api.anthropic.com",
   "openai-compatible": undefined,
   mindlogic: "https://factchat-cloud.mindlogic.ai/v1/gateway",
+  "google-ai-studio": "https://generativelanguage.googleapis.com",
 };
 
 export interface ProviderConfig {

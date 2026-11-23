@@ -45,24 +45,6 @@ export async function sendFormatted(
   }
 }
 
-export async function editFormatted(
-  api: Api,
-  chatId: number,
-  messageId: number,
-  text: Formatted,
-): Promise<void> {
-  const options = { link_preview_options: { is_disabled: true } };
-  try {
-    await api.editMessageText(chatId, messageId, text.text, {
-      ...options,
-      entities: text.entities,
-    });
-  } catch (error) {
-    if (!isEntityError(error)) throw error;
-    await api.editMessageText(chatId, messageId, text.text, options);
-  }
-}
-
 export async function sendChunks(
   api: Api,
   destination: Destination,

@@ -29,10 +29,31 @@ function toMessages(messages: readonly ChatMessage[]): MessageParam[] {
         content: (message.native as ContentBlockParam[] | undefined) ?? message.text,
       });
     } else {
-      result.push({ role: "user", content: message.text });
+      result.push({ role: "user", content: userContent(message) });
     }
   }
   return result;
+}
+
+type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+
+function userContent(
+  message: Extract<ChatMessage, { role: "user" }>,
+): string | ContentBlockParam[] {
+  if (message.images === undefined) return message.text;
+  return [
+    ...message.images.map(
+      (image): ContentBlockParam => ({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: image.mime as ImageMediaType,
+          data: image.data.toString("base64"),
+        },
+      }),
+    ),
+    ...(message.text !== "" ? [{ type: "text" as const, text: message.text }] : []),
+  ];
 }
 
 function toTools(request: ChatRequest): ToolUnion[] {

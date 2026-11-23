@@ -20,6 +20,7 @@ function node(overrides: Partial<NodeRecord>): NodeRecord {
     webSearches: 0,
     sandboxRuns: 0,
     costUsd: null,
+    mode: null,
     day: "2026-10-14",
     createdAt: 0,
     ...overrides,
@@ -52,6 +53,46 @@ describe("buildMessages", () => {
 
     expect(buildMessages(chain, "openai-chat")).toEqual([
       { role: "user", text: "first\n\nsecond" },
+    ]);
+  });
+
+  it("attaches each image once across the chain", () => {
+    const image = { fileUniqueId: "u1", mime: "image/png", data: Buffer.from("png") };
+    const chain = [
+      node({ id: 1, text: "look" }),
+      node({ id: 2, kind: "answer", text: "a" }),
+      node({ id: 3, text: "again" }),
+    ];
+    const attachments = new Map([
+      [1, [image]],
+      [3, [image]],
+    ]);
+
+    expect(buildMessages(chain, "anthropic", attachments)).toEqual([
+      { role: "user", text: "look", images: [{ mime: "image/png", data: image.data }] },
+      { role: "assistant", text: "a" },
+      { role: "user", text: "again" },
+    ]);
+  });
+
+  it("merges images of consecutive user turns", () => {
+    const first = { fileUniqueId: "u1", mime: "image/png", data: Buffer.from("1") };
+    const second = { fileUniqueId: "u2", mime: "image/jpeg", data: Buffer.from("2") };
+    const chain = [node({ id: 1, text: "" }), node({ id: 2, text: "q" })];
+    const attachments = new Map([
+      [1, [first]],
+      [2, [second]],
+    ]);
+
+    expect(buildMessages(chain, "gemini", attachments)).toEqual([
+      {
+        role: "user",
+        text: "q",
+        images: [
+          { mime: "image/png", data: first.data },
+          { mime: "image/jpeg", data: second.data },
+        ],
+      },
     ]);
   });
 

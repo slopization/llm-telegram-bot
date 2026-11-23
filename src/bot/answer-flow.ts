@@ -2,6 +2,7 @@ import type { Api } from "grammy";
 import { generateAnswer } from "../pipeline/answer.ts";
 import { buildMessages } from "../pipeline/context.ts";
 import { classifyError, EmptyAnswerError } from "../pipeline/errors.ts";
+import { SUMMARIZE_PROMPT } from "../pipeline/summarize-prompt.ts";
 import { answerMarkdown, appendFooter, appendText, renderAnswer } from "../render/answer.ts";
 import { plain } from "../render/formatted.ts";
 import { strings } from "../strings.ts";
@@ -49,13 +50,15 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
     const adapter = provider.adapterFor(model);
     const webAvailable =
       webConfig.enabled && adapter.supportsWebSearch && (info?.webSearch ?? false);
+    const chain = repo.chain(prompt.id, config.chat.maxContextNodes);
     const result = await generateAnswer({
       adapter,
       model,
       maxOutputTokens: info?.maxOutputTokens,
-      messages: buildMessages(repo.chain(prompt.id, config.chat.maxContextNodes), adapter.kind),
+      messages: buildMessages(chain, adapter.kind, repo.attachments(chain.map((node) => node.id))),
       today: day,
       timeZone: config.timezone,
+      instructions: prompt.mode === "summarize" ? SUMMARIZE_PROMPT : undefined,
       webSearch:
         webAvailable && webRemaining > 0
           ? { maxUses: Math.min(webConfig.maxUsesPerRequest, webRemaining) }

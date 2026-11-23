@@ -27,7 +27,17 @@ function toMessage(message: ChatMessage): ChatCompletionMessageParam {
         }
       );
     default:
-      return { role: "user", content: message.text };
+      if (message.images === undefined) return { role: "user", content: message.text };
+      return {
+        role: "user",
+        content: [
+          ...message.images.map((image) => ({
+            type: "image_url" as const,
+            image_url: { url: `data:${image.mime};base64,${image.data.toString("base64")}` },
+          })),
+          ...(message.text !== "" ? [{ type: "text" as const, text: message.text }] : []),
+        ],
+      };
   }
 }
 

@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { Config } from "../../src/config.ts";
 import { generateAnswer } from "../../src/pipeline/answer.ts";
+import { SUMMARIZE_PROMPT } from "../../src/pipeline/summarize-prompt.ts";
+import { CHAT_PROMPT } from "../../src/pipeline/system.ts";
 import type { ChatAdapter, ChatEvent, ChatRequest, ToolCall } from "../../src/providers/types.ts";
+import { DETAILS_MARKER } from "../../src/render/answer.ts";
 import type { RunResult, Sandbox } from "../../src/sandbox/run.ts";
 
 const limits: Config["sandbox"] = {
@@ -117,6 +120,24 @@ describe("generateAnswer", () => {
     expect(requests[0]?.system).not.toContain("tools");
     expect(result.transcript).toHaveLength(1);
     expect(result.costUsd).toBeUndefined();
+  });
+
+  it("asks for the fold by default", async () => {
+    const { adapter, requests } = scriptedAdapter([{ text: "hello" }]);
+
+    await generateAnswer(request(adapter, undefined));
+
+    expect(requests[0]?.system).toContain(CHAT_PROMPT);
+  });
+
+  it("replaces the chat prompt with given instructions", async () => {
+    const { adapter, requests } = scriptedAdapter([{ text: "요약" }]);
+
+    await generateAnswer({ ...request(adapter, undefined), instructions: SUMMARIZE_PROMPT });
+
+    expect(requests[0]?.system).toContain("고밀도 정보 분석가");
+    expect(requests[0]?.system).toContain(DETAILS_MARKER);
+    expect(requests[0]?.system).not.toContain(CHAT_PROMPT);
   });
 
   it("sums the cost of every round when the provider prices the model", async () => {

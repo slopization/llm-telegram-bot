@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Bot, Context, Filter } from "grammy";
 import type { Message } from "grammy/types";
 import { parseCommand } from "../commands/parse.ts";
-import type { NodeRecord, PendingRecord } from "../db/repo.ts";
+import type { Attachment, NodeRecord, PendingRecord, PromptMode } from "../db/repo.ts";
 import { page, representatives, sortModels } from "../providers/models.ts";
 import type { ModelInfo } from "../providers/types.ts";
 import { plain } from "../render/formatted.ts";
@@ -11,6 +11,12 @@ import { split } from "../render/split.ts";
 import { extractCode } from "../sandbox/code.ts";
 import type { Language } from "../sandbox/run.ts";
 import { strings } from "../strings.ts";
+import {
+  downloadImage,
+  FileTooLargeError,
+  type ImageRef,
+  messageImages,
+} from "../telegram/files.ts";
 import type { Destination } from "../telegram/send.ts";
 import { dayOf } from "../time.ts";
 import { runAnswer } from "./answer-flow.ts";
@@ -76,11 +82,32 @@ function replyText(ctx: Context, text: string) {
   });
 }
 
+async function downloadImages(
+  ctx: Context,
+  deps: Deps,
+  images: readonly ImageRef[],
+): Promise<Attachment[] | undefined> {
+  try {
+    const attachments: Attachment[] = [];
+    for (const image of images) {
+      attachments.push(await downloadImage(ctx.api, deps.config.telegram.botToken, image));
+    }
+    return attachments;
+  } catch (err) {
+    const tooLarge = err instanceof FileTooLargeError;
+    if (!tooLarge) deps.logger.warn({ err }, "image download failed");
+    await replyText(ctx, tooLarge ? strings.imageTooLarge : strings.imageDownloadFailed);
+    return undefined;
+  }
+}
+
 function insertPrompt(
   deps: Deps,
   message: Message,
   text: string,
   parent: NodeRecord | undefined,
+  attachments: readonly Attachment[],
+  mode?: PromptMode,
 ): number {
   const userId = message.from?.id ?? 0;
   const id = deps.repo.insertNode({
@@ -91,8 +118,10 @@ function insertPrompt(
     text,
     provider: parent?.provider ?? null,
     model: parent?.model ?? null,
+    mode: mode ?? null,
     day: today(deps),
   });
+  deps.repo.addAttachments(id, attachments);
   deps.repo.linkMessages(message.chat.id, [message.message_id], id);
   return id;
 }
@@ -108,9 +137,11 @@ async function continueChain(
     await replyText(ctx, strings.errors.noModel);
     return;
   }
+  const attachments = await downloadImages(ctx, deps, messageImages(message));
+  if (attachments === undefined) return;
   const quote = message.quote?.text;
   const prompt = quote !== undefined ? strings.partialQuotePrompt(quote, text) : text;
-  const promptNodeId = insertPrompt(deps, message, prompt, parent);
+  const promptNodeId = insertPrompt(deps, message, prompt, parent, attachments);
   deps.tasks.track(
     runAnswer(deps, ctx.api, {
       promptNodeId,
@@ -127,8 +158,17 @@ async function continueChain(
   );
 }
 
-async function startConversation(ctx: Context, deps: Deps, message: Message, prompt: string) {
-  const nodeId = insertPrompt(deps, message, prompt, undefined);
+async function startConversation(
+  ctx: Context,
+  deps: Deps,
+  message: Message,
+  prompt: string,
+  images: readonly ImageRef[],
+  mode?: PromptMode,
+) {
+  const attachments = await downloadImages(ctx, deps, images);
+  if (attachments === undefined) return;
+  const nodeId = insertPrompt(deps, message, prompt, undefined, attachments, mode);
   const userId = message.from?.id ?? 0;
   const id = randomBytes(6).toString("base64url");
   deps.repo.createPending({
@@ -157,9 +197,10 @@ function recentModel(deps: Deps, userId: number): string | undefined {
 
 async function handleAsk(ctx: Context, deps: Deps, message: Message, args: string) {
   const reply = realReply(message);
+  const ownImages = messageImages(message);
   if (reply === undefined) {
-    if (args === "") await replyText(ctx, strings.askUsage);
-    else await startConversation(ctx, deps, message, args);
+    if (args === "" && ownImages.length === 0) await replyText(ctx, strings.askUsage);
+    else await startConversation(ctx, deps, message, args, ownImages);
     return;
   }
   const node = deps.repo.nodeByMessage(message.chat.id, reply.message_id);
@@ -168,13 +209,32 @@ async function handleAsk(ctx: Context, deps: Deps, message: Message, args: strin
     else await continueChain(ctx, deps, message, node, args);
     return;
   }
+  const images = [...ownImages, ...messageImages(reply)];
   const quote = node?.text ?? reply.text ?? reply.caption ?? "";
-  if (quote === "" && args === "") {
+  if (quote === "" && args === "" && images.length === 0) {
     await replyText(ctx, strings.askUsage);
     return;
   }
   const prompt = args === "" ? quote : quote === "" ? args : strings.quotedPrompt(quote, args);
-  await startConversation(ctx, deps, message, prompt);
+  await startConversation(ctx, deps, message, prompt, images);
+}
+
+async function handleSummarize(ctx: Context, deps: Deps, message: Message, args: string) {
+  const reply = realReply(message);
+  const images = [...messageImages(message), ...(reply === undefined ? [] : messageImages(reply))];
+  const quote =
+    reply === undefined
+      ? ""
+      : (deps.repo.nodeByMessage(message.chat.id, reply.message_id)?.text ??
+        reply.text ??
+        reply.caption ??
+        "");
+  if (quote === "" && args === "" && images.length === 0) {
+    await replyText(ctx, strings.summarizeUsage);
+    return;
+  }
+  const prompt = args === "" ? quote : quote === "" ? args : strings.quotedPrompt(quote, args);
+  await startConversation(ctx, deps, message, prompt, images, "summarize");
 }
 
 async function handleCode(
@@ -237,10 +297,10 @@ async function onMessage(ctx: Context, deps: Deps) {
   const command = parseCommand(text, ctx.me.username);
   if (command === undefined) {
     const reply = realReply(message);
-    if (reply === undefined || message.text === undefined || reply.from?.id !== ctx.me.id) return;
+    if (reply === undefined || text === "" || reply.from?.id !== ctx.me.id) return;
     const node = deps.repo.nodeByMessage(message.chat.id, reply.message_id);
     if (node !== undefined && CHAIN_KINDS.has(node.kind)) {
-      await continueChain(ctx, deps, message, node, message.text);
+      await continueChain(ctx, deps, message, node, text);
     }
     return;
   }
@@ -253,6 +313,9 @@ async function onMessage(ctx: Context, deps: Deps) {
       return;
     case "ask":
       await handleAsk(ctx, deps, message, command.args);
+      return;
+    case "summarize":
+      await handleSummarize(ctx, deps, message, command.args);
       return;
     case "py":
       await handleCode(ctx, deps, message, "python", command.args);

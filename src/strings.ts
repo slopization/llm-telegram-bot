@@ -10,6 +10,7 @@ export const strings = {
     start: "봇 소개",
     help: "명령어 설명",
     ask: "LLM에게 질문",
+    summarize: "링크나 글 요약",
     py: "Python 코드 실행",
     js: "JavaScript 코드 실행",
     bash: "Bash 스크립트 실행",
@@ -22,6 +23,8 @@ export const strings = {
     start: "/start",
     help: "/help [명령어]",
     ask: "/ask 질문 (다른 메시지에 답장하면서 쓰면 그 메시지를 인용해요)",
+    summarize:
+      "/summarize 링크 또는 글 (링크나 글이 담긴 메시지에 답장하면서 /summarize 만 보내도 돼요)",
     py: "/py 코드 (코드가 담긴 메시지에 답장하면서 /py 만 보내도 돼요)",
     js: "/js 코드 (코드가 담긴 메시지에 답장하면서 /js 만 보내도 돼요)",
     bash: "/bash 스크립트 (스크립트가 담긴 메시지에 답장하면서 /bash 만 보내도 돼요)",
@@ -37,6 +40,8 @@ export const strings = {
     `${name}: ${remaining} / ${quota} 크레딧 남음${renewsOn !== undefined ? ` (월 지급분 ${renewsOn} 갱신)` : ""}`,
   budgetEstimate: (name: string, remaining: string, budget: string, spent: string, since: string) =>
     `${name}: 약 $${remaining} / $${budget} 남음 (추정, ${since}부터 $${spent} 사용)`,
+  budgetSpent: (name: string, spent: string, since: string) =>
+    `${name}: ${since}부터 약 $${spent} 사용 (추정)`,
   budgetUnknown: (name: string) => `${name}: 남은 양을 확인할 수 없어요.`,
   budgetQuota: (name: string, windows: string[], observedAt: string) =>
     `${name}: ${windows.join(", ")} (${observedAt} 기준)`,
@@ -67,7 +72,11 @@ export const strings = {
   queueCode: (language: string) => `코드 실행 (${language})`,
 
   askUsage: "명령어와 함께 질문을 입력하거나, 내용이 있는 메시지에 답장하며 사용해 주세요.",
+  summarizeUsage:
+    "요약할 링크나 글을 명령어와 함께 보내거나, 요약할 메시지에 답장하며 사용해 주세요.",
   replyNeedsText: "봇의 답변에는 내용을 입력해서 답장해 주세요.",
+  imageTooLarge: "이미지가 20MB를 넘어서 받을 수 없어요.",
+  imageDownloadFailed: "이미지를 받지 못했어요. 잠시 후 다시 시도해 주세요.",
   noCode: "실행할 코드가 없어요. 명령어 뒤에 코드를 쓰거나 코드가 담긴 메시지에 답장해 주세요.",
   quotedPrompt: (quote: string, prompt: string) =>
     `다음 메시지를 참고해 주세요.\n\n<quote>\n${quote}\n</quote>\n\n${prompt}`,

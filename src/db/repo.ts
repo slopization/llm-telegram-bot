@@ -2,6 +2,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { AdapterKind, ChatMessage } from "../providers/types.ts";
 
 export type NodeKind = "prompt" | "answer" | "run" | "error";
+export type PromptMode = "summarize";
 
 export interface Transcript {
   adapter: AdapterKind;
@@ -25,6 +26,7 @@ export interface NodeRecord {
   webSearches: number;
   sandboxRuns: number;
   costUsd: number | null;
+  mode: PromptMode | null;
   day: string;
   createdAt: number;
 }
@@ -43,6 +45,7 @@ export type NewNode = Pick<NodeRecord, "parentId" | "chatId" | "userId" | "kind"
       | "webSearches"
       | "sandboxRuns"
       | "costUsd"
+      | "mode"
     >
   >;
 
@@ -54,6 +57,12 @@ export interface PendingRecord {
   messageId: number;
   threadId: number | null;
   createdAt: number;
+}
+
+export interface Attachment {
+  fileUniqueId: string;
+  mime: string;
+  data: Buffer;
 }
 
 export interface DailyUsage {
@@ -78,6 +87,7 @@ interface NodeRow {
   web_searches: number;
   sandbox_runs: number;
   cost_usd: number | null;
+  mode: PromptMode | null;
   day: string;
   created_at: number;
 }
@@ -100,6 +110,7 @@ function toNode(row: NodeRow): NodeRecord {
     webSearches: row.web_searches,
     sandboxRuns: row.sandbox_runs,
     costUsd: row.cost_usd,
+    mode: row.mode,
     day: row.day,
     createdAt: row.created_at,
   };
@@ -117,8 +128,8 @@ export class Repo {
       .prepare(
         `INSERT INTO nodes (parent_id, chat_id, user_id, kind, text, provider, model, transcript,
            input_tokens, cache_read_tokens, cache_write_tokens, output_tokens, web_searches,
-           sandbox_runs, cost_usd, day, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           sandbox_runs, cost_usd, mode, day, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         node.parentId,
@@ -138,6 +149,7 @@ export class Repo {
         node.webSearches ?? 0,
         node.sandboxRuns ?? 0,
         node.costUsd ?? null,
+        node.mode ?? null,
         node.day,
         Date.now(),
       );
@@ -187,6 +199,41 @@ export class Repo {
       )
       .all(nodeId, maxNodes) as unknown as NodeRow[];
     return rows.map(toNode);
+  }
+
+  addAttachments(nodeId: number, attachments: readonly Attachment[]): void {
+    const statement = this.db.prepare(
+      "INSERT INTO attachments (node_id, file_unique_id, mime, data) VALUES (?, ?, ?, ?)",
+    );
+    for (const attachment of attachments) {
+      statement.run(nodeId, attachment.fileUniqueId, attachment.mime, attachment.data);
+    }
+  }
+
+  attachments(nodeIds: readonly number[]): Map<number, Attachment[]> {
+    const result = new Map<number, Attachment[]>();
+    if (nodeIds.length === 0) return result;
+    const rows = this.db
+      .prepare(
+        `SELECT node_id, file_unique_id, mime, data FROM attachments
+         WHERE node_id IN (${nodeIds.map(() => "?").join(", ")}) ORDER BY id`,
+      )
+      .all(...nodeIds) as unknown as {
+      node_id: number;
+      file_unique_id: string;
+      mime: string;
+      data: Uint8Array;
+    }[];
+    for (const row of rows) {
+      const list = result.get(row.node_id) ?? [];
+      list.push({
+        fileUniqueId: row.file_unique_id,
+        mime: row.mime,
+        data: Buffer.from(row.data.buffer, row.data.byteOffset, row.data.byteLength),
+      });
+      result.set(row.node_id, list);
+    }
+    return result;
   }
 
   dailyUsage(userId: number, day: string): DailyUsage {

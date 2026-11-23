@@ -6,6 +6,13 @@ describe("parseCommand", () => {
     expect(parseCommand("/ask hello world", "bot")).toEqual({ name: "ask", args: "hello world" });
   });
 
+  it("parses summarize with a link", () => {
+    expect(parseCommand("/summarize https://a.com", "bot")).toEqual({
+      name: "summarize",
+      args: "https://a.com",
+    });
+  });
+
   it("keeps newlines inside arguments", () => {
     expect(parseCommand("/py\nprint(1)\nprint(2)", "bot")).toEqual({
       name: "py",

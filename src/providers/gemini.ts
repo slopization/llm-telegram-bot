@@ -26,7 +26,15 @@ function toContents(messages: readonly ChatMessage[]): Content[] {
       const native = message.native as GeminiPart[] | undefined;
       result.push({ role: "model", parts: native ?? [{ text: message.text }] });
     } else {
-      result.push({ role: "user", parts: [{ text: message.text }] });
+      result.push({
+        role: "user",
+        parts: [
+          ...(message.images ?? []).map((image) => ({
+            inlineData: { mimeType: image.mime, data: image.data.toString("base64") },
+          })),
+          ...(message.text !== "" || message.images === undefined ? [{ text: message.text }] : []),
+        ],
+      });
     }
   }
   return result;

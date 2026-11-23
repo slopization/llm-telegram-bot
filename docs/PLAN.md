@@ -341,6 +341,7 @@ interface ChatProvider {
 | /start | | 인사말과 명령어 목록. AI를 호출하지 않는다 |
 | /help [명령어] | | 명령어 목록, 또는 명령어별 설명과 별칭 |
 | /ask | /a | 새 대화 |
+| /summarize | | 링크나 글을 GeekNews 스타일 리포트로 요약하는 새 대화. 모델은 `/ask`와 같은 버튼으로 고른다 |
 | /py | | Python 코드를 샌드박스에서 실행 |
 | /js | | JavaScript 코드를 샌드박스에서 실행 |
 | /bash | | Bash 스크립트를 샌드박스에서 실행 |
@@ -349,6 +350,8 @@ interface ChatProvider {
 | /queue | | 이 채팅에서 진행 중인 답변과 코드 실행. 보낸 사람(사용자 이름을 `@` 없이 적어서 멘션이 되지 않게 한다. 사용자 이름이 없으면 이름), 작업 종류와 모델이나 언어, 시작한 지 얼마나 됐는지, 프롬프트나 코드 앞 40자. 다른 채팅의 작업은 보이지 않는다. 봇에는 따로 기다리는 줄이 없고 작업은 바로 시작하므로, 코드 실행 동시 실행 한도(`concurrency`)에 걸려 기다리는 실행도 진행 중으로 보인다 |
 | /models | | provider별 채팅 모델 전체 목록과 출력 100만 토큰당 가격. 모델 버튼과 같은 기준으로 거르고 정렬한다. 4,096자를 넘으면 나눠 보낸다 |
 
+- `/summarize`는 명령 뒤의 링크나 글, 또는 답장한 메시지의 본문(DB에 있으면 노드 텍스트)과 이미지를 프롬프트로 쓴다. 둘 다 있으면 `/ask`처럼 답장 대상을 인용하고 명령 뒤의 글을 붙인다. 셋 다 없으면 사용법을 안내한다. 봇 답변에 답장하면서 써도 그 답변을 요약하는 새 대화를 시작한다.
+- `/summarize` 프롬프트 노드에는 `mode = 'summarize'`를 저장한다. 이 노드에 대한 답변만 기본 시스템 프롬프트의 접기 지시 대신 요약 지시(`src/pipeline/summarize-prompt.ts`)를 쓴다. 요약 지시는 herb-gemini-bot의 GeekNews 프롬프트 원문 그대로이고, 도입부 바로 뒤에 접기 표시를 쓰라는 규칙이 붙는다. 요약에 답장해서 이어가면 일반 대화로 돌아간다. temperature는 따로 정하지 않는다.
 - `/ask@봇이름` 형식도 받는다. 대소문자는 가리지 않는다. 다른 봇을 지정한 명령(`/ask@다른봇`)은 무시한다.
 - 명령어 메뉴(`setMyCommands`)는 1:1 대화, 그룹, 그룹 관리자 세 범위에 각각 등록하고, 별칭도 메뉴에 올린다.
 
@@ -376,11 +379,10 @@ nodes
   id, parent_id, chat_id, user_id, role, text,
   provider, model, provider_parts(json),
   input_tokens, output_tokens,
-  web_searches, sandbox_runs, created_at
+  web_searches, sandbox_runs, mode, created_at
 
 attachments
-  id, node_id, kind(image|file), mime, file_name,
-  telegram_file_id, telegram_file_unique_id, local_path
+  id, node_id, file_unique_id, mime, data(blob)
 
 tg_messages
   chat_id, message_id, node_id
@@ -395,7 +397,8 @@ user_prefs
 
 - `tg_messages`는 한 답변이 텍스트, 사진, 파일 등 여러 텔레그램 메시지로 나뉘어도 하나의 노드로 묶는다. 그중 어느 메시지에 답장해도 같은 대화로 이어진다.
 - 컨텍스트를 만들 때는 부모를 따라 최대 N개 노드(기본 50, 설정 가능)까지 올라간다.
-- 사용자가 보낸 사진과 문서는 받을 때 바로 내려받아 로컬에 저장한다. getFile 다운로드 링크는 1시간 정도만 유효하고, 내려받을 수 있는 파일은 20MB까지다.
+- 사용자가 보낸 사진과 문서는 받을 때 바로 내려받아 `attachments`에 BLOB으로 저장한다. getFile 다운로드 링크는 1시간 정도만 유효하고, 내려받을 수 있는 파일은 20MB까지다.
+- `/ask` 메시지 자체의 이미지와 `/ask`로 답장한 메시지의 이미지를 프롬프트 노드에 붙인다. 사진은 가장 큰 크기 하나를, 문서는 MIME이 JPEG, PNG, GIF, WebP인 것만 받는다. 봇 답변에 캡션 달린 사진으로 답장해도 대화를 이어간다.
 - 같은 파일(`file_unique_id`)은 히스토리 전체에서 한 번만 첨부한다. 한 요청의 첨부 파일 합계에는 상한(기본 100MB)을 둔다.
 - 허용되지 않은 사용자의 메시지는 저장하지 않는다. 단, 허용된 사용자가 그 메시지에 답장하면 그 메시지 하나만 저장한다.
 - 스키마 변경은 `PRAGMA user_version` 기반 마이그레이션 배열로만 한다.
@@ -418,8 +421,10 @@ user_prefs
 | 표 | 열을 맞춘 `pre` |
 | 구분선 | `---` 줄 |
 
+- CommonMark 규칙으로는 `**O(n)**이`처럼 문장 부호 뒤에서 닫히는 강조에 한국어 조사가 바로 붙거나, `은**"인용"**`처럼 한글 바로 뒤에서 문장 부호 앞으로 여는 강조가 강조로 인식되지 않는다. 강조 앞뒤에 한글, 한자, 히라가나, 가타카나가 붙어 있으면 이 제한을 풀어 강조로 읽는다. CJK 문자가 없는 경우(`**foo(bar)**baz`)는 CommonMark 그대로다.
 - LLM이 실행한 코드와 출력은 접히는 인용(`expandable_blockquote`)으로 넣는다.
-- 모든 요청에 짧은 시스템 프롬프트를 넣는다(`src/pipeline/system.ts`). 내용은 텔레그램 대화라는 것, 오늘 날짜와 요일(`timezone` 기준), 사용자가 쓴 언어로 답할 것, Markdown은 되지만 LaTeX는 렌더링되지 않으니 수식을 일반 텍스트로 쓸 것, 그리고 이번 요청에 켜진 도구 이름과 "필요하면 묻지 않고 써도 된다"는 문장이다. 시각은 넣지 않는다. 시스템 프롬프트가 바뀌면 Claude 프롬프트 캐시가 맞지 않으므로 하루에 한 번만 바뀌게 한다.
+- 접기: 시스템 프롬프트가 모델에게 1~3문장 답을 먼저 쓰고, 더 쓸 내용이 있으면 `[[DETAILS]]`를 한 줄에 쓴 뒤 전문을 쓰게 한다. 모델 호출은 한 번이다. 첫 표시 앞의 텍스트는 그대로 보이고, 나머지(그보다 먼저 실행한 코드 포함)는 하나의 `expandable_blockquote`에 들어간다. 텔레그램은 인용을 겹칠 수 없고 이 렌더러는 인용 안에 `pre`, `code`, `text_link`를 넣지 않으므로, 접힌 부분의 코드 블록, 인라인 코드, 표는 서식 없는 텍스트가 되고 링크는 `텍스트 (주소)`로 바뀐다. 굵게, 기울임, 취소선은 남는다. 실행한 코드 블록도 따로 접지 않고 같은 인용 안에 이어 붙는다. 표시가 없거나, 앞에 내용이 없거나, 뒤에 내용이 없으면 접지 않는다. 두 번째 이후 표시는 지운다. 바닥글(모델, 토큰)은 접힌 부분 밖에 둔다. 체인에 저장하는 답변 텍스트에는 표시를 남겨서, 히스토리에서 모델이 자기 형식을 본다. 끄는 설정은 없다.
+- 모든 요청에 짧은 시스템 프롬프트를 넣는다(`src/pipeline/system.ts`). 내용은 텔레그램 대화라는 것, 오늘 날짜와 요일(`timezone` 기준), 사용자가 쓴 언어로 답할 것, Markdown은 되지만 LaTeX는 렌더링되지 않으니 수식을 일반 텍스트로 쓸 것, 이번 요청에 켜진 도구 이름과 "필요하면 묻지 않고 써도 된다"는 문장, 그리고 접기 지시(`/summarize`는 요약 지시)다. 시각은 넣지 않는다. 시스템 프롬프트가 바뀌면 Claude 프롬프트 캐시가 맞지 않으므로 하루에 한 번만 바뀌게 한다.
 - 답변 끝에 사용한 모델과 토큰을 기울임으로 붙인다. 예: `모델: codex/gpt-6-luna`(provider 이름/모델) 다음 줄에 `토큰: 입력 1,234 (캐시 1,000), 출력 567`. 입력은 캐시 읽기와 쓰기를 포함한 전체 값이고, 캐시 읽기가 없으면 괄호를 뺀다. 코드 실행으로 여러 번 호출했으면 합계다. provider가 사용량을 주지 않아 모두 0이면 토큰 줄은 빼고 모델 줄만 붙인다. 체인에 저장하는 답변 텍스트에는 넣지 않는다.
 
 ### 길이
@@ -440,7 +445,7 @@ user_prefs
 
 ### 그룹
 
-- 드래프트는 1:1 전용이다. "모델명 응답 중" 메시지를 먼저 보내고 typing 표시를 유지하다가, 답변이 끝나면 그 메시지를 한 번만 수정해서 완성된 답변의 첫 부분으로 바꾼다. 나머지 부분은 답장으로 이어 보낸다. 이 메시지의 message_id가 답변 노드가 된다.
+- 드래프트는 1:1 전용이다. "모델명 응답 중" 메시지를 먼저 보내고 typing 표시를 유지하다가, 답변이 끝나면 완성된 답변을 사용자 메시지에 대한 새 답장으로 보내고 "응답 중" 메시지는 지운다. 대화가 많은 그룹에서 수정된 메시지는 위쪽에 묻히기 때문이다. 에러 문구도 같은 방식으로 보낸다.
 - 그룹 정지: `can_stop`은 드래프트에만 있으므로, 2단계에서 "응답 중" 메시지에 정지 버튼을 단다.
 
 ### 이미지와 파일
@@ -581,6 +586,7 @@ grammY의 `bot.start()`는 업데이트를 하나씩 처리한다. 핸들러가 
 | `claude` | Anthropic Messages | `https://api.anthropic.com` |
 | `openai-compatible` | OpenAI Chat Completions, `api`가 `responses`면 OpenAI Responses | 없음(필수) |
 | `mindlogic` | 모델 ID 접두사로 Anthropic Messages(`claude-`), Gemini 네이티브(`gemini-`), OpenAI Responses(`gpt-`), Chat Completions(나머지) 중에서 고른다 | `https://factchat-cloud.mindlogic.ai/v1/gateway` |
+| `google-ai-studio` | Gemini 네이티브. `generateContent`를 지원하는 모델만 목록에 넣고, 웹 검색은 `gemini-` 모델에서만 켠다. 잔액 API가 없어서 `google-prices.ts`의 단가로 비용을 계산하고, `/budget`에는 갱신일부터 쓴 금액을 보여준다 | `https://generativelanguage.googleapis.com` |
 
 Mindlogic을 `openai-compatible`로 등록해도 동작하지만, Chat Completions 경로는 텍스트만 돌려주고 Claude 프롬프트 캐싱도 되지 않는다. 그래서 Mindlogic 전용 type을 둔다. `openai-compatible`은 나중에 OpenRouter 같은 provider를 붙일 때 쓴다.
 
@@ -676,7 +682,6 @@ compose.yaml
 ### 보류
 
 - 이미지 생성(Mindlogic `type=image` 모델, `/images/generate/`)
-- 링크와 문서 요약 명령(`/summarize`)
 
 ## 문서에 없는 것
 

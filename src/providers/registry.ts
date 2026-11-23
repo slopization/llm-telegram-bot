@@ -1,12 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { GoogleGenAI } from "@google/genai";
+import { type Model as GeminiModel, GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import type { ProviderConfig } from "../config.ts";
 import type { Logger } from "../log.ts";
+import { dayOf } from "../time.ts";
 import { AnthropicAdapter } from "./anthropic.ts";
 import { claudeCost, claudePrice } from "./claude-prices.ts";
 import { fetchCodexUsage, parseCodexQuota } from "./codex-quota.ts";
 import { GeminiAdapter } from "./gemini.ts";
+import { googleCost, googleOutputPrice } from "./google-prices.ts";
 import { isChatModel } from "./models.ts";
 import { OpenAIChatAdapter } from "./openai-chat.ts";
 import { OpenAIPrices } from "./openai-prices.ts";
@@ -208,6 +210,47 @@ function mindlogicProvider(config: ProviderConfig): Provider {
   };
 }
 
+export function aiStudioModel(model: GeminiModel, day: string): ModelInfo | undefined {
+  if (model.name === undefined || !model.supportedActions?.includes("generateContent")) {
+    return undefined;
+  }
+  const id = model.name.replace(/^models\//, "");
+  return {
+    id,
+    vendor: "google",
+    outputPricePerMTok: googleOutputPrice(id, day),
+    webSearch: id.startsWith("gemini-"),
+    maxOutputTokens: model.outputTokenLimit,
+    legacy: false,
+  };
+}
+
+function utcToday(): string {
+  return dayOf(Date.now(), "UTC");
+}
+
+function googleAIStudioProvider(config: ProviderConfig): Provider {
+  const ai = new GoogleGenAI({
+    apiKey: config.apiKey,
+    httpOptions: { baseUrl: config.apiUrl, headers: { "User-Agent": USER_AGENT } },
+  });
+  const adapter = new GeminiAdapter(ai);
+  const models = new CachedModels(async () => {
+    const result: ModelInfo[] = [];
+    for await (const model of await ai.models.list()) {
+      const info = aiStudioModel(model, utcToday());
+      if (info !== undefined) result.push(info);
+    }
+    return result;
+  });
+  return {
+    name: config.name,
+    listModels: () => models.get(),
+    adapterFor: () => adapter,
+    costOf: (model, usage) => googleCost(model, usage, utcToday()),
+  };
+}
+
 export function createProvider(config: ProviderConfig, logger?: Logger): Provider {
   switch (config.type) {
     case "claude":
@@ -216,5 +259,7 @@ export function createProvider(config: ProviderConfig, logger?: Logger): Provide
       return openAICompatibleProvider(config, logger);
     case "mindlogic":
       return mindlogicProvider(config);
+    case "google-ai-studio":
+      return googleAIStudioProvider(config);
   }
 }

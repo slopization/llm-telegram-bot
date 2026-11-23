@@ -2,6 +2,7 @@ export const COMMANDS = [
   "start",
   "help",
   "ask",
+  "summarize",
   "py",
   "js",
   "bash",

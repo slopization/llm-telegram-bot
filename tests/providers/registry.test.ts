@@ -1,5 +1,49 @@
 import { describe, expect, it } from "vitest";
-import { adapterKindFromEndpoints, mindlogicOutputPrice } from "../../src/providers/registry.ts";
+import {
+  adapterKindFromEndpoints,
+  aiStudioModel,
+  mindlogicOutputPrice,
+} from "../../src/providers/registry.ts";
+
+describe("aiStudioModel", () => {
+  it("strips the models/ prefix and keeps the output limit and price", () => {
+    expect(
+      aiStudioModel(
+        {
+          name: "models/gemini-3.5-flash-lite",
+          supportedActions: ["generateContent", "countTokens"],
+          outputTokenLimit: 65536,
+        },
+        "2026-11-23",
+      ),
+    ).toEqual({
+      id: "gemini-3.5-flash-lite",
+      vendor: "google",
+      outputPricePerMTok: 2.5,
+      webSearch: true,
+      maxOutputTokens: 65536,
+      legacy: false,
+    });
+  });
+
+  it("disables web search for non-gemini models", () => {
+    expect(
+      aiStudioModel(
+        { name: "models/gemma-4-27b-it", supportedActions: ["generateContent"] },
+        "2026-11-23",
+      )?.webSearch,
+    ).toBe(false);
+  });
+
+  it("skips models without generateContent", () => {
+    expect(
+      aiStudioModel(
+        { name: "models/text-embedding-004", supportedActions: ["embedContent"] },
+        "2026-11-23",
+      ),
+    ).toBeUndefined();
+  });
+});
 
 describe("adapterKindFromEndpoints", () => {
   it.each([

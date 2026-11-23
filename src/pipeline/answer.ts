@@ -34,6 +34,7 @@ export interface AnswerRequest {
   messages: ChatMessage[];
   today: string;
   timeZone: string;
+  instructions?: string | undefined;
   webSearch: { maxUses: number } | undefined;
   sandbox: SandboxAccess | undefined;
   webFetch: WebFetchAccess | undefined;
@@ -99,10 +100,15 @@ export async function generateAnswer(request: AnswerRequest): Promise<AnswerResu
     ...(webFetch !== undefined ? [webFetchTool()] : []),
   ];
   const maxRounds = (sandbox?.runsAllowed ?? 0) + (webFetch?.fetchesAllowed ?? 0) + 2;
-  const system = systemPrompt(request.today, request.timeZone, [
-    ...(request.webSearch !== undefined ? ["web search"] : []),
-    ...functions.map((tool) => tool.name),
-  ]);
+  const system = systemPrompt(
+    request.today,
+    request.timeZone,
+    [
+      ...(request.webSearch !== undefined ? ["web search"] : []),
+      ...functions.map((tool) => tool.name),
+    ],
+    request.instructions,
+  );
 
   for (let round = 0; round < maxRounds; round++) {
     const { text, done } = await streamRound(request, result, system, functions);

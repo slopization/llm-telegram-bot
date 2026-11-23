@@ -11,6 +11,7 @@ const DEFAULT_MODELS: Record<ProviderType, string[]> = {
   mindlogic: ["claude-haiku-5-5", "gemini-3.5-flash-lite", "gpt-5.6-luna", "solar-mini4"],
   claude: ["claude-haiku-5-5"],
   "openai-compatible": [],
+  "google-ai-studio": [],
 };
 const FIRST_PROMPT =
   "run_code 도구로 파이썬을 실행해서 2의 100제곱을 계산하고, 웹 검색이 가능하면 오늘 서울 날씨도 찾아서 한국어로 짧게 답해줘.";

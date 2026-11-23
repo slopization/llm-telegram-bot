@@ -4,14 +4,7 @@ import type { Logger } from "../log.ts";
 import { EMPTY, type Formatted, plain, slice } from "../render/formatted.ts";
 import { split, splitRanges } from "../render/split.ts";
 import { strings } from "../strings.ts";
-import {
-  type Destination,
-  editFormatted,
-  replyOption,
-  sendChunks,
-  sendFormatted,
-  threadOption,
-} from "./send.ts";
+import { type Destination, replyOption, sendChunks, sendFormatted, threadOption } from "./send.ts";
 import { Typing } from "./typing.ts";
 
 export interface AnswerSink {
@@ -124,6 +117,7 @@ export class GroupSink implements AnswerSink {
   private readonly api: Api;
   private readonly destination: Destination;
   private readonly label: string;
+  private readonly logger: Logger;
   private readonly typing: Typing;
   private placeholder: number | undefined;
 
@@ -131,6 +125,7 @@ export class GroupSink implements AnswerSink {
     this.api = api;
     this.destination = destination;
     this.label = label;
+    this.logger = logger;
     this.typing = new Typing(api, destination, logger);
   }
 
@@ -151,25 +146,33 @@ export class GroupSink implements AnswerSink {
 
   async finish(answer: Formatted): Promise<number[]> {
     this.typing.stop();
-    const [first = plain(strings.errors.empty), ...rest] = split(answer);
-    if (this.placeholder === undefined) {
-      return sendChunks(this.api, this.destination, [first, ...rest], this.destination.replyTo);
-    }
-    await editFormatted(this.api, this.destination.chatId, this.placeholder, first);
-    return [
-      this.placeholder,
-      ...(await sendChunks(this.api, this.destination, rest, this.placeholder)),
-    ];
+    const chunks = split(answer);
+    const ids = await sendChunks(
+      this.api,
+      this.destination,
+      chunks.length > 0 ? chunks : [plain(strings.errors.empty)],
+      this.destination.replyTo,
+    );
+    await this.removePlaceholder();
+    return ids;
   }
 
   async fail(message: string): Promise<number[]> {
     this.typing.stop();
-    if (this.placeholder === undefined) {
-      return [
-        await sendFormatted(this.api, this.destination, plain(message), this.destination.replyTo),
-      ];
-    }
-    await editFormatted(this.api, this.destination.chatId, this.placeholder, plain(message));
-    return [this.placeholder];
+    const id = await sendFormatted(
+      this.api,
+      this.destination,
+      plain(message),
+      this.destination.replyTo,
+    );
+    await this.removePlaceholder();
+    return [id];
+  }
+
+  private async removePlaceholder(): Promise<void> {
+    if (this.placeholder === undefined) return;
+    await this.api
+      .deleteMessage(this.destination.chatId, this.placeholder)
+      .catch((err: unknown) => this.logger.warn({ err }, "placeholder delete failed"));
   }
 }

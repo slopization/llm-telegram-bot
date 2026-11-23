@@ -50,6 +50,19 @@ const MIGRATIONS = [
   ALTER TABLE nodes ADD COLUMN cost_usd REAL;
   CREATE INDEX nodes_provider_day ON nodes (provider, day);
   `,
+  `
+  CREATE TABLE attachments (
+    id INTEGER PRIMARY KEY,
+    node_id INTEGER NOT NULL REFERENCES nodes(id),
+    file_unique_id TEXT NOT NULL,
+    mime TEXT NOT NULL,
+    data BLOB NOT NULL
+  );
+  CREATE INDEX attachments_node ON attachments (node_id);
+  `,
+  `
+  ALTER TABLE nodes ADD COLUMN mode TEXT;
+  `,
 ];
 
 export function openDatabase(path: string): DatabaseSync {
