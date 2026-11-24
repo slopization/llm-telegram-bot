@@ -25,7 +25,7 @@ export function systemPrompt(
     "You are an assistant in a Telegram chat.",
     `Today is ${today} (${weekday(today)}, ${timeZone}).`,
     "Reply in the language the user writes in.",
-    "Markdown is rendered, but LaTeX is not: write math as plain text instead of \\( \\), \\[ \\] or $$.",
+    "Markdown and LaTeX math are rendered: write inline math as $...$ and display math as $$...$$.",
     ...(tools.length > 0
       ? [`You may use these tools whenever they help, without asking first: ${tools.join(", ")}.`]
       : []),

@@ -45,6 +45,20 @@ export async function sendFormatted(
   }
 }
 
+export async function sendRich(
+  api: Api,
+  destination: Destination,
+  html: string,
+  replyTo: number | undefined,
+): Promise<number> {
+  const message = await api.sendRichMessage(
+    destination.chatId,
+    { html },
+    { ...threadOption(destination), ...replyOption(replyTo) },
+  );
+  return message.message_id;
+}
+
 export async function sendChunks(
   api: Api,
   destination: Destination,

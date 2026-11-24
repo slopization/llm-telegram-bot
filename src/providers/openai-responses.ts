@@ -5,7 +5,7 @@ import type {
   ResponseInputItem,
   Tool,
 } from "openai/resources/responses/responses";
-import { formatSources, type Source } from "./sources.ts";
+import type { Source } from "./sources.ts";
 import type { ChatAdapter, ChatEvent, ChatMessage, ChatRequest, ToolCall } from "./types.ts";
 
 const MAX_OUTPUT_TOKENS = 16000;
@@ -123,8 +123,8 @@ export class OpenAIResponsesAdapter implements ChatAdapter {
     }
     if (final === undefined) throw new Error("stream ended without a final response");
 
-    const footer = formatSources(urlCitations(final));
-    if (footer !== "") yield { type: "text", text: footer };
+    const sources = urlCitations(final);
+    if (sources.length > 0) yield { type: "sources", sources };
 
     const toolCalls: ToolCall[] = final.output.flatMap((item) =>
       item.type === "function_call"

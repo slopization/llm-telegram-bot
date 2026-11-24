@@ -1,16 +1,17 @@
 import { randomInt } from "node:crypto";
 import type { Api } from "grammy";
 import type { Logger } from "../log.ts";
-import { EMPTY, type Formatted, plain, slice } from "../render/formatted.ts";
-import { split, splitRanges } from "../render/split.ts";
+import { plain } from "../render/formatted.ts";
+import { escapeHtml } from "../render/markdown.ts";
+import { splitRichHtml } from "../render/rich-split.ts";
 import { strings } from "../strings.ts";
-import { type Destination, replyOption, sendChunks, sendFormatted, threadOption } from "./send.ts";
+import { type Destination, replyOption, sendFormatted, sendRich, threadOption } from "./send.ts";
 import { Typing } from "./typing.ts";
 
 export interface AnswerSink {
   start(): Promise<void>;
-  update(answer: Formatted): void;
-  finish(answer: Formatted): Promise<number[]>;
+  update(html: string): void;
+  finish(html: string): Promise<number[]>;
   fail(message: string): Promise<number[]>;
 }
 
@@ -22,9 +23,8 @@ export class DraftSink implements AnswerSink {
   private readonly typing: Typing;
   private readonly draftBase = randomInt(1, 2 ** 30);
   private readonly messageIds: number[] = [];
-  private latest: Formatted = EMPTY;
-  private sentUpTo = 0;
-  private draftIndex = 0;
+  private latest = "";
+  private sentChunks = 0;
   private draftsEnabled = true;
   private lastFlush = 0;
   private timer: NodeJS.Timeout | undefined;
@@ -43,8 +43,8 @@ export class DraftSink implements AnswerSink {
     this.typing.start();
   }
 
-  update(answer: Formatted): void {
-    this.latest = answer;
+  update(html: string): void {
+    this.latest = html;
     if (this.timer !== undefined || this.closed) return;
     const wait = Math.max(0, this.intervalMs - (Date.now() - this.lastFlush));
     this.timer = setTimeout(() => {
@@ -55,11 +55,9 @@ export class DraftSink implements AnswerSink {
     }, wait);
   }
 
-  async finish(answer: Formatted): Promise<number[]> {
+  async finish(html: string): Promise<number[]> {
     await this.close();
-    for (const [start, end] of splitRanges(answer.text, this.sentUpTo)) {
-      await this.sendFinal(slice(answer, start, end));
-    }
+    for (const chunk of splitRichHtml(html).slice(this.sentChunks)) await this.sendFinal(chunk);
     return this.messageIds;
   }
 
@@ -81,25 +79,19 @@ export class DraftSink implements AnswerSink {
   private async flush(): Promise<void> {
     if (this.closed) return;
     this.lastFlush = Date.now();
-    const ranges = splitRanges(this.latest.text, this.sentUpTo);
-    while (ranges.length > 1) {
-      const [start, end] = ranges.shift() ?? [0, 0];
-      await this.sendFinal(slice(this.latest, start, end));
-      this.sentUpTo = ranges[0]?.[0] ?? end;
-      this.draftIndex++;
+    const chunks = splitRichHtml(this.latest);
+    while (chunks.length - this.sentChunks > 1) {
+      await this.sendFinal(chunks[this.sentChunks] ?? "");
+      this.sentChunks++;
     }
-    const last = ranges[0];
-    if (last === undefined || !this.draftsEnabled) return;
-    const chunk = slice(this.latest, last[0], last[1]);
+    const draft = chunks[this.sentChunks];
+    if (draft === undefined || !this.draftsEnabled) return;
     try {
-      await this.api.sendMessageDraft(
+      await this.api.sendRichMessageDraft(
         this.destination.chatId,
-        this.draftBase + this.draftIndex,
-        chunk.text,
-        {
-          entities: chunk.entities,
-          ...threadOption(this.destination),
-        },
+        this.draftBase + this.sentChunks,
+        { html: draft },
+        threadOption(this.destination),
       );
     } catch (err) {
       this.draftsEnabled = false;
@@ -107,9 +99,9 @@ export class DraftSink implements AnswerSink {
     }
   }
 
-  private async sendFinal(chunk: Formatted): Promise<void> {
+  private async sendFinal(chunk: string): Promise<void> {
     const replyTo = this.messageIds.at(-1) ?? this.destination.replyTo;
-    this.messageIds.push(await sendFormatted(this.api, this.destination, chunk, replyTo));
+    this.messageIds.push(await sendRich(this.api, this.destination, chunk, replyTo));
   }
 }
 
@@ -144,15 +136,16 @@ export class GroupSink implements AnswerSink {
 
   update(): void {}
 
-  async finish(answer: Formatted): Promise<number[]> {
+  async finish(html: string): Promise<number[]> {
     this.typing.stop();
-    const chunks = split(answer);
-    const ids = await sendChunks(
-      this.api,
-      this.destination,
-      chunks.length > 0 ? chunks : [plain(strings.errors.empty)],
-      this.destination.replyTo,
-    );
+    const rendered = splitRichHtml(html);
+    const chunks = rendered.length > 0 ? rendered : [`<p>${escapeHtml(strings.errors.empty)}</p>`];
+    const ids: number[] = [];
+    for (const chunk of chunks) {
+      ids.push(
+        await sendRich(this.api, this.destination, chunk, ids.at(-1) ?? this.destination.replyTo),
+      );
+    }
     await this.removePlaceholder();
     return ids;
   }

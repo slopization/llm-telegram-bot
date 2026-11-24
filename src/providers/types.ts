@@ -1,3 +1,5 @@
+import type { Source } from "./sources.ts";
+
 export type AdapterKind = "anthropic" | "gemini" | "openai-responses" | "openai-chat";
 
 export type Part =
@@ -49,6 +51,7 @@ export interface ChatResult extends TokenUsage {
 export type ChatEvent =
   | { type: "text"; text: string }
   | { type: "part"; part: Exclude<Part, { type: "text" }> }
+  | { type: "sources"; sources: Source[] }
   | ({ type: "done" } & ChatResult);
 
 export interface ModelInfo {

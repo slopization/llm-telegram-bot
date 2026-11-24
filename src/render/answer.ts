@@ -1,9 +1,8 @@
-import type { MessageEntity } from "grammy/types";
+import { type Source, uniqueSources } from "../providers/sources.ts";
 import type { TokenUsage } from "../providers/types.ts";
 import type { Language } from "../sandbox/run.ts";
 import { strings } from "../strings.ts";
-import { concat, type Formatted, plain } from "./formatted.ts";
-import { renderMarkdown } from "./markdown.ts";
+import { codeBlock, escapeAttribute, escapeHtml, renderMarkdown, safeHref } from "./markdown.ts";
 import { LANGUAGE_LABELS, truncate } from "./run.ts";
 
 const RUN_BLOCK_OUTPUT_CHARS = 1500;
@@ -27,42 +26,36 @@ export function answerMarkdown(segments: readonly AnswerSegment[]): string {
     .trim();
 }
 
-function bold(text: string): Formatted {
-  return { text, entities: [{ type: "bold", offset: 0, length: text.length }] };
+type RunSegment = Extract<AnswerSegment, { kind: "run" }>;
+
+function toggle(summary: string, body: string): string {
+  return `<details><summary>${escapeHtml(summary)}</summary>\n${body}\n</details>`;
 }
 
-function expandable(body: Formatted): Formatted {
-  const quote: MessageEntity = {
-    type: "expandable_blockquote",
-    offset: 0,
-    length: body.text.length,
-  };
-  return { text: body.text, entities: [quote, ...body.entities] };
+function runHeader(segment: RunSegment): string {
+  return strings.runHeader(LANGUAGE_LABELS[segment.language]);
 }
 
-function runBody(segment: Extract<AnswerSegment, { kind: "run" }>): Formatted {
-  return concat(
-    bold(strings.runHeader(LANGUAGE_LABELS[segment.language])),
-    plain(`\n${segment.code}\n\n`),
-    bold(strings.runOutputHeader),
-    plain(`\n${truncate(segment.output, RUN_BLOCK_OUTPUT_CHARS)}`),
-  );
+function runBody(segment: RunSegment): string {
+  return [
+    codeBlock(segment.code, segment.language),
+    `<p><b>${escapeHtml(strings.runOutputHeader)}</b></p>`,
+    codeBlock(truncate(segment.output, RUN_BLOCK_OUTPUT_CHARS)),
+  ].join("\n");
 }
 
-function renderSegments(segments: readonly AnswerSegment[], insideQuote: boolean): Formatted {
-  const parts: Formatted[] = [];
-  for (const segment of segments) {
-    const rendered =
-      segment.kind === "text"
-        ? renderMarkdown(segment.markdown, insideQuote)
-        : insideQuote
-          ? runBody(segment)
-          : expandable(runBody(segment));
-    if (rendered.text === "") continue;
-    if (parts.length > 0) parts.push(plain("\n\n"));
-    parts.push(rendered);
-  }
-  return concat(...parts);
+function renderRun(segment: RunSegment, folded: boolean): string {
+  if (!folded) return toggle(runHeader(segment), runBody(segment));
+  return `<p><b>${escapeHtml(runHeader(segment))}</b></p>\n${runBody(segment)}`;
+}
+
+function renderSegments(segments: readonly AnswerSegment[], folded: boolean): string {
+  return segments
+    .map((segment) =>
+      segment.kind === "text" ? renderMarkdown(segment.markdown) : renderRun(segment, folded),
+    )
+    .filter((rendered) => rendered !== "")
+    .join("\n");
 }
 
 function splitLead(segments: readonly AnswerSegment[]): { lead: string; body: AnswerSegment[] } {
@@ -84,12 +77,26 @@ function splitLead(segments: readonly AnswerSegment[]): { lead: string; body: An
   return { lead: lead ?? "", body };
 }
 
-export function renderAnswer(segments: readonly AnswerSegment[]): Formatted {
+export function renderAnswer(segments: readonly AnswerSegment[]): string {
   const { lead, body } = splitLead(segments);
   if (lead.trim() === "") return renderSegments(body, false);
   const visible = renderMarkdown(lead);
   const folded = renderSegments(body, true);
-  return folded.text === "" ? visible : concat(visible, plain("\n\n"), expandable(folded));
+  return folded === "" ? visible : `${visible}\n${toggle(strings.detailsSummary, folded)}`;
+}
+
+function sourceItem(source: Source): string {
+  const label = escapeHtml(source.title || source.url);
+  const href = safeHref(source.url);
+  return `<li>${href === undefined ? label : `<a href="${escapeAttribute(href)}">${label}</a>`}</li>`;
+}
+
+export function appendSources(answer: string, sources: readonly Source[]): string {
+  const unique = uniqueSources(sources);
+  if (unique.length === 0) return answer;
+  const list = ["<ul>", ...unique.map(sourceItem), "</ul>"].join("\n");
+  const block = toggle(strings.sourcesSummary, list);
+  return answer === "" ? block : `${answer}\n${block}`;
 }
 
 function count(tokens: number): string {
@@ -104,17 +111,14 @@ function tokenLine(usage: TokenUsage): string | undefined {
 }
 
 export function appendFooter(
-  answer: Formatted,
+  answer: string,
   provider: string,
   model: string,
   usage: TokenUsage,
-): Formatted {
-  const modelLine = strings.modelUsed(provider, model);
-  const tokens = tokenLine(usage);
-  const text = tokens === undefined ? modelLine : `${modelLine}\n${tokens}`;
-  const footer: Formatted = {
-    text,
-    entities: [{ type: "italic", offset: 0, length: text.length }],
-  };
-  return answer.text === "" ? footer : concat(answer, plain("\n\n"), footer);
+): string {
+  const lines = [strings.modelUsed(provider, model), tokenLine(usage)].flatMap((line) =>
+    line === undefined ? [] : [escapeHtml(line)],
+  );
+  const footer = `<p><i>${lines.join("<br/>\n")}</i></p>`;
+  return answer === "" ? footer : `${answer}\n${footer}`;
 }

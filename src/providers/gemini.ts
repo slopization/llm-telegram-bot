@@ -1,5 +1,5 @@
 import type { Content, Part as GeminiPart, GoogleGenAI, Tool } from "@google/genai";
-import { formatSources, type Source } from "./sources.ts";
+import type { Source } from "./sources.ts";
 import type { ChatAdapter, ChatEvent, ChatMessage, ChatRequest, Part, ToolCall } from "./types.ts";
 
 const SYNTHETIC_ID_PREFIX = "gemini-call-";
@@ -138,8 +138,7 @@ export class GeminiAdapter implements ChatAdapter {
       }
     }
 
-    const footer = formatSources(sources);
-    if (footer !== "") yield { type: "text", text: footer };
+    if (sources.length > 0) yield { type: "sources", sources };
     yield {
       type: "done",
       inputTokens,

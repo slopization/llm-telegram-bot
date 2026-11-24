@@ -3,7 +3,14 @@ import { generateAnswer } from "../pipeline/answer.ts";
 import { buildMessages } from "../pipeline/context.ts";
 import { classifyError, EmptyAnswerError } from "../pipeline/errors.ts";
 import { SUMMARIZE_PROMPT } from "../pipeline/summarize-prompt.ts";
-import { answerMarkdown, appendFooter, appendText, renderAnswer } from "../render/answer.ts";
+import { formatSources } from "../providers/sources.ts";
+import {
+  answerMarkdown,
+  appendFooter,
+  appendSources,
+  appendText,
+  renderAnswer,
+} from "../render/answer.ts";
 import { plain } from "../render/formatted.ts";
 import { strings } from "../strings.ts";
 import { type Destination, sendFormatted } from "../telegram/send.ts";
@@ -90,14 +97,19 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
       appendText(result.segments, strings.webSearchQuotaNotice);
 
     const messageIds = await sink.finish(
-      appendFooter(renderAnswer(result.segments), provider.name, model, result),
+      appendFooter(
+        appendSources(renderAnswer(result.segments), result.sources),
+        provider.name,
+        model,
+        result,
+      ),
     );
     const answerId = repo.insertNode({
       parentId: prompt.id,
       chatId: destination.chatId,
       userId: job.userId,
       kind: "answer",
-      text: answerMarkdown(result.segments),
+      text: answerMarkdown(result.segments) + formatSources(result.sources),
       provider: provider.name,
       model,
       transcript: { adapter: adapter.kind, messages: result.transcript },

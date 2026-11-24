@@ -5,7 +5,7 @@ import type {
   MessageParam,
   ToolUnion,
 } from "@anthropic-ai/sdk/resources/messages/messages";
-import { formatSources, type Source } from "./sources.ts";
+import type { Source } from "./sources.ts";
 import type { ChatAdapter, ChatEvent, ChatMessage, ChatRequest, ToolCall } from "./types.ts";
 
 const MAX_TOKENS = 32000;
@@ -134,8 +134,8 @@ export class AnthropicAdapter implements ChatAdapter {
       if (final.stop_reason !== "pause_turn" || continuation >= MAX_PAUSE_CONTINUATIONS) break;
     }
 
-    const footer = formatSources(citations(content));
-    if (footer !== "") yield { type: "text", text: footer };
+    const sources = citations(content);
+    if (sources.length > 0) yield { type: "sources", sources };
 
     const toolCalls: ToolCall[] = content.flatMap((block) =>
       block.type === "tool_use" ? [{ id: block.id, name: block.name, arguments: block.input }] : [],

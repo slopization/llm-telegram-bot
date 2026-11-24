@@ -3,6 +3,7 @@ import type { Config } from "../../src/config.ts";
 import { generateAnswer } from "../../src/pipeline/answer.ts";
 import { SUMMARIZE_PROMPT } from "../../src/pipeline/summarize-prompt.ts";
 import { CHAT_PROMPT } from "../../src/pipeline/system.ts";
+import type { Source } from "../../src/providers/sources.ts";
 import type { ChatAdapter, ChatEvent, ChatRequest, ToolCall } from "../../src/providers/types.ts";
 import { DETAILS_MARKER } from "../../src/render/answer.ts";
 import type { RunResult, Sandbox } from "../../src/sandbox/run.ts";
@@ -32,7 +33,7 @@ const runResult: RunResult = {
   totalFiles: 1,
 };
 
-function scriptedAdapter(rounds: { text: string; toolCalls?: ToolCall[] }[]) {
+function scriptedAdapter(rounds: { text: string; toolCalls?: ToolCall[]; sources?: Source[] }[]) {
   const requests: ChatRequest[] = [];
   const adapter: ChatAdapter = {
     kind: "openai-chat",
@@ -41,6 +42,7 @@ function scriptedAdapter(rounds: { text: string; toolCalls?: ToolCall[] }[]) {
       requests.push(request);
       const round = rounds[requests.length - 1] ?? { text: "" };
       if (round.text !== "") yield { type: "text", text: round.text };
+      if (round.sources !== undefined) yield { type: "sources", sources: round.sources };
       yield {
         type: "done",
         inputTokens: 10,
@@ -120,6 +122,17 @@ describe("generateAnswer", () => {
     expect(requests[0]?.system).not.toContain("tools");
     expect(result.transcript).toHaveLength(1);
     expect(result.costUsd).toBeUndefined();
+  });
+
+  it("keeps sources out of the answer text but in the transcript", async () => {
+    const sources = [{ url: "https://a.com", title: "A" }];
+    const { adapter } = scriptedAdapter([{ text: "hello", sources }]);
+
+    const result = await generateAnswer(request(adapter, undefined));
+
+    expect(result.segments).toEqual([{ kind: "text", markdown: "hello" }]);
+    expect(result.sources).toEqual(sources);
+    expect(result.transcript[0]?.text).toContain("[A](https://a.com)");
   });
 
   it("asks for the fold by default", async () => {

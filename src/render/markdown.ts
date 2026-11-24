@@ -1,21 +1,78 @@
-import type { MessageEntity } from "grammy/types";
-import { Marked, type Token, Tokenizer, type Tokens } from "marked";
-import { type Formatted, trimEnd } from "./formatted.ts";
+import { Marked, type Token, Tokenizer, type TokenizerExtension, type Tokens } from "marked";
 
-type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
-type EntitySpec = DistributiveOmit<MessageEntity, "offset" | "length">;
+export function escapeHtml(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
 
-const LINK_PROTOCOLS = ["http:", "https:", "tg:"];
-const STYLE_TYPES = new Set(["bold", "italic", "underline", "strikethrough", "spoiler"]);
+const RESOLVED_ENTITY =
+  /&(?!(?:amp|lt|gt|quot|apos|nbsp|hellip|mdash|ndash|lsquo|rsquo|ldquo|rdquo|#\d{1,7}|#[xX][0-9a-fA-F]{1,6});)/g;
 
-const HTML_ENTITIES: Record<string, string> = {
-  "&amp;": "&",
-  "&lt;": "<",
-  "&gt;": ">",
-  "&quot;": '"',
-  "&#39;": "'",
-  "&nbsp;": " ",
-};
+// Markdown resolves entity references in prose (not in code), so an `&amp;` the model wrote
+// already means `&` and must not be escaped twice.
+function escapeProse(text: string): string {
+  return text.replace(RESOLVED_ENTITY, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+export function escapeAttribute(text: string): string {
+  return escapeHtml(text).replace(/"/g, "&quot;");
+}
+
+// Telegram silently unlinks an anchor with any other scheme.
+const SUPPORTED_SCHEME = /^(?:https?|tg):\/\//i;
+
+export function safeHref(href: string): string | undefined {
+  const trimmed = href.trim();
+  return SUPPORTED_SCHEME.test(trimmed) ? trimmed : undefined;
+}
+
+// Bare newlines collapse to spaces in rich HTML.
+const BR = "<br/>\n";
+
+// Telegram rejects a message nested deeper than 16 levels, blocks and inline formatting
+// together. These caps keep the worst case at details 1 + quote 3 + list 6 + paragraph 1 +
+// inline 5.
+const MAX_QUOTE_DEPTH = 3;
+const MAX_LIST_DEPTH = 6;
+const MAX_INLINE_DEPTH = 5;
+const MAX_TABLE_COLUMNS = 20;
+
+interface MathToken {
+  type: "mathBlock" | "mathInline";
+  raw: string;
+  text: string;
+}
+
+const BLOCK_MATH = [
+  /^ {0,3}\$\$([\s\S]+?)\$\$[ \t]*(?:\n+|$)/,
+  /^ {0,3}\\\[([\s\S]+?)\\\][ \t]*(?:\n+|$)/,
+];
+const INLINE_MATH = [
+  /^\$\$([\s\S]+?)\$\$/,
+  /^\\\[([\s\S]+?)\\\]/,
+  /^\\\(([\s\S]+?)\\\)/,
+  // A currency amount is not math: no space inside the delimiters, no digit after the close.
+  /^\$(?!\s)((?:\\.|[^\\$\n])+?)(?<!\s)\$(?!\d)/,
+];
+
+function mathExtension(level: "block" | "inline", rules: RegExp[]): TokenizerExtension {
+  const name = level === "block" ? "mathBlock" : "mathInline";
+  return {
+    name,
+    level,
+    start: (src) => {
+      const at = src.search(level === "block" ? /^ {0,3}(?:\$\$|\\\[)/m : /\$|\\[([]/);
+      return at === -1 ? undefined : at;
+    },
+    tokenizer: (src): MathToken | undefined => {
+      for (const rule of rules) {
+        const match = rule.exec(src);
+        const body = match?.[1]?.trim();
+        if (match && body) return { type: name, raw: match[0], text: body };
+      }
+      return undefined;
+    },
+  };
+}
 
 const CJK = String.raw`\p{sc=Hangul}\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}`;
 const PUNCT_BEFORE_CJK_CLOSER = new RegExp(String.raw`(?!\*)[\p{P}\p{S}](?=\*+[${CJK}])`, "gu");
@@ -26,6 +83,7 @@ const CJK_CHAR = new RegExp(`^[${CJK}]$`, "u");
 // so a same-length letter in place of the punctuation makes the run closable.
 const markdownParser = new Marked({
   gfm: true,
+  extensions: [mathExtension("block", BLOCK_MATH), mathExtension("inline", INLINE_MATH)],
   hooks: {
     emStrongMask: (src) => src.replace(PUNCT_BEFORE_CJK_CLOSER, (p) => "a".repeat(p.length)),
   },
@@ -37,251 +95,207 @@ const markdownParser = new Marked({
   },
 });
 
-function decodeEntities(text: string): string {
-  return text.replace(/&(?:amp|lt|gt|quot|#39|nbsp);/g, (match) => HTML_ENTITIES[match] ?? match);
+interface Depth {
+  quote: number;
+  list: number;
 }
 
-function isLinkable(href: string): boolean {
-  try {
-    return LINK_PROTOCOLS.includes(new URL(href).protocol);
-  } catch {
-    return false;
+export function renderMarkdown(markdown: string): string {
+  return renderBlocks(markdownParser.lexer(markdown), { quote: 0, list: 0 }).join("\n");
+}
+
+function renderBlocks(tokens: Token[], depth: Depth): string[] {
+  const out: string[] = [];
+  for (const token of tokens) {
+    const block = renderBlock(token, depth);
+    if (block !== "") out.push(block);
+  }
+  return out;
+}
+
+function renderBlock(token: Token, depth: Depth): string {
+  switch (token.type) {
+    case "heading": {
+      const heading = token as Tokens.Heading;
+      return `<h${heading.depth}>${renderInline(heading.tokens, 0)}</h${heading.depth}>`;
+    }
+    case "paragraph":
+      return `<p>${renderInline((token as Tokens.Paragraph).tokens, 0)}</p>`;
+    case "text": {
+      const text = token as Tokens.Text;
+      return `<p>${text.tokens ? renderInline(text.tokens, 0) : proseLines(text.text)}</p>`;
+    }
+    case "code": {
+      const code = token as Tokens.Code;
+      const language = code.lang?.split(/\s/)[0];
+      if (language?.toLowerCase() === "math") return mathBlock(code.text);
+      return codeBlock(code.text, language);
+    }
+    case "mathBlock":
+      return mathBlock((token as Tokens.Generic).text);
+    case "blockquote": {
+      const inner = renderBlocks((token as Tokens.Blockquote).tokens, {
+        ...depth,
+        quote: depth.quote + 1,
+      });
+      if (inner.length === 0) return "";
+      if (depth.quote >= MAX_QUOTE_DEPTH) return inner.join("\n");
+      return `<blockquote>\n${inner.join("\n")}\n</blockquote>`;
+    }
+    case "list":
+      return renderList(token as Tokens.List, depth);
+    case "table":
+      return renderTable(token as Tokens.Table);
+    case "hr":
+      return "<hr/>";
+    case "space":
+    case "def":
+      return "";
+    default: {
+      const raw = rawOf(token).trim();
+      return raw === "" ? "" : `<p>${breakLines(escapeHtml(raw))}</p>`;
+    }
   }
 }
 
-function displayWidth(text: string): number {
-  let width = 0;
-  for (const char of text) {
-    const code = char.codePointAt(0) ?? 0;
-    const wide =
-      (code >= 0x1100 && code <= 0x115f) ||
-      (code >= 0x2e80 && code <= 0xa4cf) ||
-      (code >= 0xac00 && code <= 0xd7a3) ||
-      (code >= 0xf900 && code <= 0xfaff) ||
-      (code >= 0xfe30 && code <= 0xfe4f) ||
-      (code >= 0xff00 && code <= 0xff60) ||
-      (code >= 0xffe0 && code <= 0xffe6) ||
-      (code >= 0x1f300 && code <= 0x1faff);
-    width += wide ? 2 : 1;
-  }
-  return width;
+export function codeBlock(text: string, language?: string): string {
+  const attribute = language ? ` class="language-${escapeAttribute(language)}"` : "";
+  return `<pre><code${attribute}>${escapeHtml(text)}</code></pre>`;
 }
 
-class Renderer {
-  private text = "";
-  private readonly entities: MessageEntity[] = [];
-  private readonly open: string[];
+function mathBlock(latex: string): string {
+  return `<tg-math-block>${escapeHtml(latex.trim())}</tg-math-block>`;
+}
 
-  constructor(open: string[] = []) {
-    this.open = open;
+function renderList(list: Tokens.List, depth: Depth): string {
+  if (depth.list >= MAX_LIST_DEPTH) return flattenList(list);
+  const inner: Depth = { ...depth, list: depth.list + 1 };
+  const start = typeof list.start === "number" ? list.start : 1;
+  const open = list.ordered ? (start === 1 ? "<ol>" : `<ol start="${start}">`) : "<ul>";
+  const lines = [open];
+  for (const item of list.items) {
+    const checkbox = item.task ? `<input type="checkbox"${item.checked ? " checked" : ""}/>` : "";
+    lines.push(`<li>${checkbox}${renderItemBody(item.tokens, inner)}</li>`);
   }
+  lines.push(list.ordered ? "</ol>" : "</ul>");
+  return lines.join("\n");
+}
 
-  result(): Formatted {
-    return trimEnd({ text: this.text, entities: this.entities });
-  }
-
-  blocks(tokens: Token[]): void {
-    let first = true;
-    for (const token of tokens) {
-      if (token.type === "space" || token.type === "def") continue;
-      if (!first) this.append("\n\n");
-      first = false;
-      this.block(token);
+function renderItemBody(tokens: Token[], depth: Depth): string {
+  const parts: string[] = [];
+  for (const child of tokens) {
+    if (child.type === "checkbox") continue;
+    if (child.type === "text") {
+      const text = child as Tokens.Text;
+      parts.push(text.tokens ? renderInline(text.tokens, 0) : proseLines(text.text));
+      continue;
     }
+    const block = renderBlock(child, depth);
+    if (block !== "") parts.push(block);
   }
+  return parts.join("\n");
+}
 
-  private append(text: string): void {
-    this.text += text;
-  }
-
-  private canOpen(type: string): boolean {
-    if (STYLE_TYPES.has(type)) return true;
-    if (type === "text_link") return this.open.every((open) => STYLE_TYPES.has(open));
-    if (type === "blockquote") return !this.open.includes("blockquote");
-    return this.open.length === 0;
-  }
-
-  private wrap(entity: EntitySpec, render: () => void): void {
-    const offset = this.text.length;
-    this.open.push(entity.type);
-    render();
-    this.open.pop();
-    const length = this.text.length - offset;
-    if (length > 0) this.entities.push({ ...entity, offset, length } as MessageEntity);
-  }
-
-  private block(token: Token): void {
-    switch (token.type) {
-      case "paragraph":
-      case "text":
-        this.inline((token as Tokens.Paragraph).tokens ?? [], (token as Tokens.Text).text);
-        return;
-      case "heading":
-        this.wrap({ type: "bold" }, () => this.inline((token as Tokens.Heading).tokens));
-        return;
-      case "code":
-        this.code(token as Tokens.Code);
-        return;
-      case "blockquote":
-        this.blockquote(token as Tokens.Blockquote);
-        return;
-      case "list":
-        this.list(token as Tokens.List, 0);
-        return;
-      case "table":
-        this.table(token as Tokens.Table);
-        return;
-      case "hr":
-        this.append("---");
-        return;
-      default:
-        this.append(decodeEntities("text" in token ? String(token.text) : token.raw).trimEnd());
-    }
-  }
-
-  private code(token: Tokens.Code): void {
-    if (!this.canOpen("pre")) {
-      this.append(token.text);
-      return;
-    }
-    const language = token.lang?.split(/\s/)[0];
-    const entity: EntitySpec = language ? { type: "pre", language } : { type: "pre" };
-    this.wrap(entity, () => this.append(token.text));
-  }
-
-  private blockquote(token: Tokens.Blockquote): void {
-    if (!this.canOpen("blockquote")) {
-      this.blocks(token.tokens);
-      return;
-    }
-    this.wrap({ type: "blockquote" }, () => this.blocks(token.tokens));
-  }
-
-  private list(token: Tokens.List, depth: number): void {
-    const start = typeof token.start === "number" ? token.start : 1;
-    token.items.forEach((item, index) => {
-      if (index > 0 || depth > 0) this.append("\n");
-      const marker = token.ordered ? `${start + index}. ` : "- ";
-      const checkbox = item.task ? (item.checked ? "[x] " : "[ ] ") : "";
-      this.append(`${"  ".repeat(depth)}${marker}${checkbox}`);
-      this.listItem(item, depth);
-    });
-  }
-
-  private listItem(item: Tokens.ListItem, depth: number): void {
-    let first = true;
-    for (const child of item.tokens) {
-      if (child.type === "checkbox" || child.type === "space") continue;
-      if (child.type === "list") {
-        this.list(child as Tokens.List, depth + 1);
-        continue;
+function flattenList(list: Tokens.List): string {
+  const lines: string[] = [];
+  const walk = (current: Tokens.List): void => {
+    for (const item of current.items) {
+      const text: string[] = [];
+      for (const child of item.tokens) {
+        if (child.type === "list") continue;
+        if ("tokens" in child && Array.isArray(child.tokens)) {
+          text.push(renderInline(child.tokens, 0));
+        } else if (child.type !== "checkbox" && child.type !== "space") {
+          text.push(breakLines(escapeHtml(rawOf(child).trim())));
+        }
       }
-      if (!first) this.append(`\n${"  ".repeat(depth + 1)}`);
-      first = false;
-      this.block(child);
+      lines.push(`• ${text.join(" ")}`);
+      for (const child of item.tokens) if (child.type === "list") walk(child as Tokens.List);
     }
-  }
+  };
+  walk(list);
+  return `<p>${lines.join(BR)}</p>`;
+}
 
-  private table(token: Tokens.Table): void {
-    const cellText = (cell: Tokens.TableCell) => {
-      const nested = new Renderer();
-      nested.inline(cell.tokens, cell.text);
-      return nested.result().text.replace(/\n/g, " ");
-    };
-    const rows = [token.header.map(cellText), ...token.rows.map((row) => row.map(cellText))];
-    const widths = token.header.map((_, column) =>
-      Math.max(...rows.map((row) => displayWidth(row[column] ?? ""))),
-    );
-    const pad = (text: string, column: number) => {
-      const fill = " ".repeat((widths[column] ?? 0) - displayWidth(text));
-      return token.align[column] === "right" ? fill + text : text + fill;
-    };
-    const line = (row: string[]) =>
-      row
-        .map((cell, column) => pad(cell, column))
-        .join(" | ")
-        .trimEnd();
-    const separator = widths.map((width) => "-".repeat(width)).join("-+-");
-    const [header = [], ...body] = rows;
-    const text = [line(header), separator, ...body.map(line)].join("\n");
-    if (!this.canOpen("pre")) {
-      this.append(text);
-      return;
-    }
-    this.wrap({ type: "pre" }, () => this.append(text));
-  }
+function renderTable(table: Tokens.Table): string {
+  if (table.header.length > MAX_TABLE_COLUMNS) return codeBlock(table.raw.trim());
+  const cell = (tag: "th" | "td", c: Tokens.TableCell): string => {
+    const align = c.align ? ` align="${c.align}"` : "";
+    return `<${tag}${align}>${renderInline(c.tokens, 0)}</${tag}>`;
+  };
+  const lines = ["<table bordered>"];
+  lines.push(`<tr>${table.header.map((c) => cell("th", c)).join("")}</tr>`);
+  for (const row of table.rows) lines.push(`<tr>${row.map((c) => cell("td", c)).join("")}</tr>`);
+  lines.push("</table>");
+  return lines.join("\n");
+}
 
-  private inline(tokens: Token[], fallback = ""): void {
-    if (tokens.length === 0) {
-      this.append(decodeEntities(fallback));
-      return;
-    }
-    for (const token of tokens) this.inlineToken(token);
-  }
-
-  private inlineToken(token: Token): void {
+function renderInline(tokens: Token[], depth: number): string {
+  const wrap = (tag: string, inner: Token[]): string => {
+    const content = renderInline(inner, depth + 1);
+    return depth >= MAX_INLINE_DEPTH ? content : `<${tag}>${content}</${tag}>`;
+  };
+  let out = "";
+  for (const token of tokens) {
     switch (token.type) {
-      case "strong":
-        this.wrap({ type: "bold" }, () => this.inline((token as Tokens.Strong).tokens));
-        return;
-      case "em":
-        this.wrap({ type: "italic" }, () => this.inline((token as Tokens.Em).tokens));
-        return;
-      case "del":
-        this.wrap({ type: "strikethrough" }, () => this.inline((token as Tokens.Del).tokens));
-        return;
-      case "codespan":
-        this.codespan(token as Tokens.Codespan);
-        return;
-      case "br":
-        this.append("\n");
-        return;
-      case "link":
-        this.link(token as Tokens.Link);
-        return;
-      case "image": {
-        const image = token as Tokens.Image;
-        this.append(image.text || image.href);
-        return;
-      }
-      case "escape":
-        this.append((token as Tokens.Escape).text);
-        return;
       case "text": {
         const text = token as Tokens.Text;
-        if (text.tokens && text.tokens.length > 0) this.inline(text.tokens);
-        else this.append(decodeEntities(text.text));
-        return;
+        out += text.tokens ? renderInline(text.tokens, depth) : proseLines(text.text);
+        break;
       }
+      case "escape":
+        out += escapeHtml((token as Tokens.Escape).text);
+        break;
+      case "strong":
+        out += wrap("b", (token as Tokens.Strong).tokens);
+        break;
+      case "em":
+        out += wrap("i", (token as Tokens.Em).tokens);
+        break;
+      case "del":
+        out += wrap("s", (token as Tokens.Del).tokens);
+        break;
+      case "codespan":
+        out += `<code>${escapeHtml((token as Tokens.Codespan).text)}</code>`;
+        break;
+      case "mathInline":
+        out += `<tg-math>${escapeHtml((token as Tokens.Generic).text.replace(/\s*\n\s*/g, " "))}</tg-math>`;
+        break;
+      case "link": {
+        const link = token as Tokens.Link;
+        const href = safeHref(link.href);
+        const label = renderInline(link.tokens, depth + 1);
+        out +=
+          href && depth < MAX_INLINE_DEPTH
+            ? `<a href="${escapeAttribute(href)}">${label}</a>`
+            : label;
+        break;
+      }
+      case "image": {
+        const image = token as Tokens.Image;
+        const href = safeHref(image.href);
+        const label = escapeHtml(image.text || image.href);
+        out += href ? `<a href="${escapeAttribute(href)}">${label}</a>` : label;
+        break;
+      }
+      case "br":
+        out += BR;
+        break;
       default:
-        this.append(decodeEntities("text" in token ? String(token.text) : token.raw));
+        out += escapeHtml(rawOf(token));
     }
   }
-
-  private codespan(token: Tokens.Codespan): void {
-    if (!this.canOpen("code")) {
-      this.append(token.text);
-      return;
-    }
-    this.wrap({ type: "code" }, () => this.append(token.text));
-  }
-
-  private link(token: Tokens.Link): void {
-    if (!isLinkable(token.href)) {
-      this.inline(token.tokens, token.text);
-      return;
-    }
-    if (!this.canOpen("text_link")) {
-      this.inline(token.tokens, token.text);
-      if (token.text !== token.href) this.append(` (${token.href})`);
-      return;
-    }
-    this.wrap({ type: "text_link", url: token.href }, () => this.inline(token.tokens, token.text));
-  }
+  return out;
 }
 
-export function renderMarkdown(markdown: string, insideQuote = false): Formatted {
-  const renderer = new Renderer(insideQuote ? ["blockquote"] : []);
-  renderer.blocks(markdownParser.lexer(markdown));
-  return renderer.result();
+function proseLines(text: string): string {
+  return breakLines(escapeProse(text));
+}
+
+function breakLines(escaped: string): string {
+  return escaped.replace(/\n/g, BR);
+}
+
+function rawOf(token: Token): string {
+  return "raw" in token && typeof token.raw === "string" ? token.raw : "";
 }

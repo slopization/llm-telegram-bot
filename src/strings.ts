@@ -107,6 +107,8 @@ export const strings = {
       : `토큰: 입력 ${input} (캐시 ${cached}), 출력 ${output}`,
 
   sources: "출처",
+  detailsSummary: "모두 보기",
+  sourcesSummary: "출처 보기",
   runHeader: (language: string) => `코드 실행 (${language})`,
   runOutputHeader: "출력",
   runSummary: (language: string, exitCode: number | undefined, seconds: string) =>

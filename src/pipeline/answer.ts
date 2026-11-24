@@ -1,4 +1,5 @@
 import type { Config } from "../config.ts";
+import { formatSources, type Source } from "../providers/sources.ts";
 import type {
   ChatAdapter,
   ChatMessage,
@@ -45,6 +46,7 @@ export interface AnswerRequest {
 
 export interface AnswerResult extends TokenUsage {
   segments: AnswerSegment[];
+  sources: Source[];
   media: Media[];
   transcript: ChatMessage[];
   sandboxRuns: number;
@@ -78,6 +80,7 @@ export function fileMedia(name: string, data: Buffer): Media {
 export async function generateAnswer(request: AnswerRequest): Promise<AnswerResult> {
   const result: AnswerResult = {
     segments: [],
+    sources: [],
     media: [],
     transcript: [],
     inputTokens: 0,
@@ -167,6 +170,9 @@ async function streamRound(
       request.onUpdate(result.segments);
     } else if (event.type === "part") {
       result.media.push(event.part);
+    } else if (event.type === "sources") {
+      text += formatSources(event.sources);
+      result.sources.push(...event.sources);
     } else {
       done = event;
     }
