@@ -15,7 +15,7 @@ export function runCodeTool(limits: Config["sandbox"]): FunctionTool {
     description: [
       "Run Python, JavaScript or Bash code in an isolated Linux (Debian) sandbox and get stdout, stderr and the exit code.",
       `Limits: no network access, ${limits.timeoutSeconds} seconds, ${limits.memoryMb} MB memory, ${limits.diskMb} MB disk.`,
-      "Files written to /output are sent to the user (images as photos). Each call starts a fresh sandbox; nothing persists between calls.",
+      'Only files written to /output are sent to the user (images as photos). Save them with an absolute path such as plt.savefig("/output/plot.png"); files anywhere else, including the working directory, are discarded. Each call starts a fresh sandbox; nothing persists between calls.',
       `Python 3.14 packages: ${PYTHON_PACKAGES}. Matplotlib uses a Korean font (NanumGothic) by default; with seaborn call sns.set_theme(font="NanumGothic").`,
       `JavaScript runs as an ES module in Node.js 24 (top-level await allowed) with packages: ${NODE_PACKAGES}.`,
       "Bash runs as a script with standard Debian command-line tools; python and node are on PATH.",
@@ -53,6 +53,8 @@ export function toolResultText(result: RunResult, outputChars: number): string {
     lines.push(
       `files sent to the user: ${result.files.map((file) => `${file.name} (${file.data.length} bytes)`).join(", ")}`,
     );
+  } else {
+    lines.push("files sent to the user: none (only files saved in /output are sent)");
   }
   return lines.join("\n");
 }
