@@ -7,31 +7,46 @@ import type { MediaSender } from "../telegram/media.ts";
 
 export interface TaskInfo {
   chatId: number;
+  userId: number;
   sender: string;
   label: string;
   preview: string;
   startedAt: number;
 }
 
+interface RunningTask {
+  info: TaskInfo;
+  controller: AbortController;
+}
+
 export class Tasks {
-  private readonly running = new Map<Promise<void>, TaskInfo>();
+  private readonly running = new Map<Promise<void>, RunningTask>();
   private readonly logger: Logger;
 
   constructor(logger: Logger) {
     this.logger = logger;
   }
 
-  track(task: Promise<void>, info: TaskInfo): void {
-    const tracked = task
+  track(run: (signal: AbortSignal) => Promise<void>, info: TaskInfo): void {
+    const controller = new AbortController();
+    const tracked = run(controller.signal)
       .catch((err: unknown) => this.logger.error({ err }, "background task failed"))
       .finally(() => this.running.delete(tracked));
-    this.running.set(tracked, info);
+    this.running.set(tracked, { info, controller });
   }
 
   inChat(chatId: number): TaskInfo[] {
     return [...this.running.values()]
-      .filter((info) => info.chatId === chatId)
+      .filter((task) => task.info.chatId === chatId && !task.controller.signal.aborted)
+      .map((task) => task.info)
       .sort((a, b) => a.startedAt - b.startedAt);
+  }
+
+  cancel(info: TaskInfo): boolean {
+    const task = [...this.running.values()].find((candidate) => candidate.info === info);
+    if (task === undefined || task.controller.signal.aborted) return false;
+    task.controller.abort();
+    return true;
   }
 
   async drain(): Promise<void> {

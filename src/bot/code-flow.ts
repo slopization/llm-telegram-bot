@@ -17,7 +17,12 @@ export interface CodeJob {
   code: string;
 }
 
-export async function runCode(deps: Deps, api: Api, job: CodeJob): Promise<void> {
+export async function runCode(
+  deps: Deps,
+  api: Api,
+  job: CodeJob,
+  cancel: AbortSignal,
+): Promise<void> {
   const { config, repo } = deps;
   const { destination } = job;
   const logger = deps.logger.child({ chatId: destination.chatId, language: job.language });
@@ -26,10 +31,12 @@ export async function runCode(deps: Deps, api: Api, job: CodeJob): Promise<void>
 
   let result: Awaited<ReturnType<typeof deps.sandbox.run>>;
   try {
-    result = await deps.sandbox.run(job.language, job.code, true);
+    result = await deps.sandbox.run(job.language, job.code, true, cancel);
   } catch (err) {
-    logger.error({ err }, "sandbox run failed");
-    await sendFormatted(api, destination, plain(strings.errors.sandbox), destination.replyTo);
+    if (cancel.aborted) logger.info("sandbox run cancelled");
+    else logger.error({ err }, "sandbox run failed");
+    const text = cancel.aborted ? strings.taskCancelled : strings.errors.sandbox;
+    await sendFormatted(api, destination, plain(text), destination.replyTo);
     return;
   } finally {
     typing.stop();

@@ -18,6 +18,7 @@ export const strings = {
     budget: "provider별 남은 예산",
     models: "provider별 모델 목록",
     queue: "이 채팅에서 진행 중인 작업",
+    cancel: "진행 중인 내 작업 취소",
   },
   commandUsages: {
     start: "/start",
@@ -32,6 +33,7 @@ export const strings = {
     budget: "/budget",
     models: "/models",
     queue: "/queue",
+    cancel: "/cancel [번호] (번호는 /queue 목록의 번호, 없으면 내 가장 최근 작업을 취소해요)",
   },
   aliasDescription: (name: string, description: string) => `/${name}의 별칭. ${description}`,
 
@@ -70,6 +72,12 @@ export const strings = {
   queueMinutes: (minutes: number, seconds: number) => `${minutes}분 ${seconds}초`,
   queueAnswer: (model: string) => `답변 (${model})`,
   queueCode: (language: string) => `코드 실행 (${language})`,
+
+  cancelUsage: "/cancel 뒤에는 /queue 목록의 번호를 써 주세요.",
+  cancelNothing: "이 채팅에서 취소할 내 작업이 없어요.",
+  cancelNotFound: (index: number) => `${index}번 작업이 없어요. /queue 로 목록을 확인해 주세요.`,
+  cancelOnlyRequester: "작업을 요청한 사람만 취소할 수 있어요.",
+  taskCancelled: "작업을 취소했어요.",
 
   askUsage: "명령어와 함께 질문을 입력하거나, 내용이 있는 메시지에 답장하며 사용해 주세요.",
   summarizeUsage:

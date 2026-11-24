@@ -31,7 +31,12 @@ function sinkFor(deps: Deps, api: Api, destination: Destination, model: string):
     : new GroupSink(api, destination, model, deps.logger);
 }
 
-export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<void> {
+export async function runAnswer(
+  deps: Deps,
+  api: Api,
+  job: AnswerJob,
+  cancel: AbortSignal,
+): Promise<void> {
   const { config, repo } = deps;
   const { destination } = job;
   const prompt = repo.node(job.promptNodeId);
@@ -88,7 +93,7 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
             },
           }
         : undefined,
-      signal: AbortSignal.any([deps.shutdown, timeout]),
+      signal: AbortSignal.any([deps.shutdown, timeout, cancel]),
       onUpdate: (segments) => sink.update(renderAnswer(segments)),
       costOf: provider.costOf && ((usage) => provider.costOf?.(model, usage)),
     });
@@ -142,9 +147,15 @@ export async function runAnswer(deps: Deps, api: Api, job: AnswerJob): Promise<v
     );
   } catch (err) {
     if (deps.shutdown.aborted) return;
-    const kind = classifyError(err, timeout.aborted);
-    logger.error({ err, kind }, "answer failed");
-    const text = strings.errors[kind];
+    let text: string;
+    if (cancel.aborted) {
+      logger.info("answer cancelled");
+      text = strings.taskCancelled;
+    } else {
+      const kind = classifyError(err, timeout.aborted);
+      logger.error({ err, kind }, "answer failed");
+      text = strings.errors[kind];
+    }
     const messageIds = await sink.fail(text).catch((failure: unknown) => {
       logger.warn({ err: failure }, "error message send failed");
       return [];

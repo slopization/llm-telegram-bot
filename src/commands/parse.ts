@@ -10,6 +10,7 @@ export const COMMANDS = [
   "budget",
   "models",
   "queue",
+  "cancel",
 ] as const;
 export type CommandName = (typeof COMMANDS)[number];
 

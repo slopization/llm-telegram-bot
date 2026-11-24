@@ -23,7 +23,7 @@ import { runAnswer } from "./answer-flow.ts";
 import { budgetText } from "./budget.ts";
 import { runCode } from "./code-flow.ts";
 import { helpText, startText } from "./commands.ts";
-import type { Deps } from "./deps.ts";
+import type { Deps, TaskInfo } from "./deps.ts";
 import {
   allModelsKeyboard,
   decodeSelection,
@@ -142,14 +142,22 @@ async function continueChain(
   const quote = message.quote?.text;
   const prompt = quote !== undefined ? strings.partialQuotePrompt(quote, text) : text;
   const promptNodeId = insertPrompt(deps, message, prompt, parent, attachments);
+  const userId = message.from?.id ?? 0;
   deps.tasks.track(
-    runAnswer(deps, ctx.api, {
-      promptNodeId,
-      destination: destinationOf(message, message.message_id),
-      userId: message.from?.id ?? 0,
-    }),
+    (signal) =>
+      runAnswer(
+        deps,
+        ctx.api,
+        {
+          promptNodeId,
+          destination: destinationOf(message, message.message_id),
+          userId,
+        },
+        signal,
+      ),
     {
       chatId: message.chat.id,
+      userId,
       sender: senderName(message.from),
       label: strings.queueAnswer(parent.model),
       preview: preview(text),
@@ -261,14 +269,21 @@ async function handleCode(
     return;
   }
   deps.tasks.track(
-    runCode(deps, ctx.api, {
-      destination: destinationOf(message, message.message_id),
-      userId,
-      language,
-      code,
-    }),
+    (signal) =>
+      runCode(
+        deps,
+        ctx.api,
+        {
+          destination: destinationOf(message, message.message_id),
+          userId,
+          language,
+          code,
+        },
+        signal,
+      ),
     {
       chatId: message.chat.id,
+      userId,
       sender: senderName(message.from),
       label: strings.queueCode(LANGUAGE_LABELS[language]),
       preview: preview(code),
@@ -288,6 +303,21 @@ async function handleUsage(ctx: Context, deps: Deps, message: Message) {
       deps.config.sandbox.dailyLimitPerUser,
     ),
   );
+}
+
+function cancelTarget(tasks: readonly TaskInfo[], userId: number, args: string): TaskInfo | string {
+  if (args === "") return tasks.findLast((task) => task.userId === userId) ?? strings.cancelNothing;
+  const index = Number(args);
+  if (!Number.isInteger(index)) return strings.cancelUsage;
+  const task = tasks[index - 1];
+  if (task === undefined) return strings.cancelNotFound(index);
+  return task.userId === userId ? task : strings.cancelOnlyRequester;
+}
+
+async function handleCancel(ctx: Context, deps: Deps, message: Message, args: string) {
+  const target = cancelTarget(deps.tasks.inChat(message.chat.id), message.from?.id ?? 0, args);
+  if (typeof target === "string") await replyText(ctx, target);
+  else if (!deps.tasks.cancel(target)) await replyText(ctx, strings.cancelNothing);
 }
 
 async function onMessage(ctx: Context, deps: Deps) {
@@ -340,6 +370,9 @@ async function onMessage(ctx: Context, deps: Deps) {
     case "queue":
       await replyText(ctx, queueText(deps.tasks.inChat(message.chat.id), Date.now()));
       return;
+    case "cancel":
+      await handleCancel(ctx, deps, message, command.args);
+      return;
   }
 }
 
@@ -368,18 +401,25 @@ async function choose(
   deps.repo.setNodeModel(pending.nodeId, providerName, model);
   deps.repo.setPreference(pending.userId, providerName, model);
   deps.tasks.track(
-    runAnswer(deps, ctx.api, {
-      promptNodeId: pending.nodeId,
-      destination: {
-        chatId: pending.chatId,
-        threadId: pending.threadId ?? undefined,
-        replyTo: pending.messageId,
-        isPrivate: ctx.chat?.type === "private",
-      },
-      userId: pending.userId,
-    }),
+    (signal) =>
+      runAnswer(
+        deps,
+        ctx.api,
+        {
+          promptNodeId: pending.nodeId,
+          destination: {
+            chatId: pending.chatId,
+            threadId: pending.threadId ?? undefined,
+            replyTo: pending.messageId,
+            isPrivate: ctx.chat?.type === "private",
+          },
+          userId: pending.userId,
+        },
+        signal,
+      ),
     {
       chatId: pending.chatId,
+      userId: pending.userId,
       sender: senderName(ctx.from),
       label: strings.queueAnswer(model),
       preview: preview(deps.repo.node(pending.nodeId)?.text ?? ""),

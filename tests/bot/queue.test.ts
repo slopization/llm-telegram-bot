@@ -6,6 +6,7 @@ import type { Logger } from "../../src/log.ts";
 const logger = { error: () => undefined } as unknown as Logger;
 const info = (chatId: number, startedAt: number) => ({
   chatId,
+  userId: 7,
   sender: "a",
   label: "답변 (m)",
   preview: "q",
@@ -16,14 +17,29 @@ describe("Tasks", () => {
   it("lists running tasks of one chat oldest first and forgets finished ones", async () => {
     const tasks = new Tasks(logger);
     const { promise, resolve } = Promise.withResolvers<void>();
-    tasks.track(promise, info(1, 20));
-    tasks.track(new Promise<void>(() => undefined), info(1, 10));
-    tasks.track(new Promise<void>(() => undefined), info(2, 5));
+    tasks.track(() => promise, info(1, 20));
+    tasks.track(() => new Promise<void>(() => undefined), info(1, 10));
+    tasks.track(() => new Promise<void>(() => undefined), info(2, 5));
 
     expect(tasks.inChat(1).map((task) => task.startedAt)).toEqual([10, 20]);
     resolve();
     await new Promise((resolve) => setImmediate(resolve));
     expect(tasks.inChat(1).map((task) => task.startedAt)).toEqual([10]);
+  });
+
+  it("aborts a cancelled task once and hides it from the queue", () => {
+    const tasks = new Tasks(logger);
+    let signal: AbortSignal | undefined;
+    const task = info(1, 0);
+    tasks.track((given) => {
+      signal = given;
+      return new Promise<void>(() => undefined);
+    }, task);
+
+    expect(tasks.cancel(task)).toBe(true);
+    expect(signal?.aborted).toBe(true);
+    expect(tasks.inChat(1)).toEqual([]);
+    expect(tasks.cancel(task)).toBe(false);
   });
 });
 

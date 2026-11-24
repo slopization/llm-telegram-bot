@@ -134,7 +134,7 @@ export async function generateAnswer(request: AnswerRequest): Promise<AnswerResu
         call.name === WEB_FETCH && webFetch !== undefined
           ? await fetchCall(call, webFetch, result, request.signal)
           : call.name === RUN_CODE && sandbox !== undefined
-            ? await runToolCall(call, sandbox, result, request.onUpdate)
+            ? await runToolCall(call, sandbox, result, request.onUpdate, request.signal)
             : `Unknown tool: ${call.name}`;
       result.transcript.push({ role: "tool", callId: call.id, name: call.name, text: output });
     }
@@ -186,12 +186,13 @@ async function runToolCall(
   sandbox: SandboxAccess,
   result: AnswerResult,
   onUpdate: AnswerRequest["onUpdate"],
+  signal: AbortSignal,
 ): Promise<string> {
   const parsed = parseRunCall(call);
   if (parsed === undefined) return INVALID_CALL;
   if (result.sandboxRuns >= sandbox.runsAllowed) return LIMIT_REACHED;
   result.sandboxRuns++;
-  const run = await sandbox.runner.run(parsed.language, parsed.code);
+  const run = await sandbox.runner.run(parsed.language, parsed.code, false, signal);
   for (const file of run.files) result.media.push(fileMedia(file.name, file.data));
   result.segments.push({
     kind: "run",

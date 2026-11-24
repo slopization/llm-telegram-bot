@@ -126,10 +126,16 @@ export class Sandbox {
     if (ids.length > 0) await docker(["rm", "-f", ...ids]);
   }
 
-  async run(language: Language, code: string, echoLastValue = false): Promise<RunResult> {
+  async run(
+    language: Language,
+    code: string,
+    echoLastValue = false,
+    signal?: AbortSignal,
+  ): Promise<RunResult> {
     await this.acquire();
     try {
-      return await this.execute(language, prepare(language, code, echoLastValue));
+      signal?.throwIfAborted();
+      return await this.execute(language, prepare(language, code, echoLastValue), signal);
     } finally {
       this.release();
     }
@@ -187,12 +193,16 @@ export class Sandbox {
     ];
   }
 
-  private async execute(language: Language, prepared: Prepared): Promise<RunResult> {
+  private async execute(
+    language: Language,
+    prepared: Prepared,
+    signal: AbortSignal | undefined,
+  ): Promise<RunResult> {
     const name = `llm-bot-run-${randomUUID()}`;
     await this.create(name);
     try {
       const started = Date.now();
-      const exec = await this.exec(name, COMMANDS[language].workdir, prepared);
+      const exec = await this.exec(name, COMMANDS[language].workdir, prepared, signal);
       const durationMs = Date.now() - started;
       const files = exec.timedOut ? [] : await this.collectFiles(name);
       return {
@@ -223,6 +233,7 @@ export class Sandbox {
     name: string,
     workdir: string,
     { command, input }: Prepared,
+    signal: AbortSignal | undefined,
   ): Promise<Pick<RunResult, "stdout" | "stderr" | "exitCode" | "timedOut">> {
     return new Promise((resolve, reject) => {
       const child = spawn("docker", ["exec", "-i", "-w", workdir, name, ...command]);
@@ -233,15 +244,25 @@ export class Sandbox {
         timedOut = true;
         child.kill("SIGKILL");
       }, this.limits.timeoutSeconds * 1000);
+      const kill = () => child.kill("SIGKILL");
+      signal?.addEventListener("abort", kill, { once: true });
+      const settle = () => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", kill);
+      };
       child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
       child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
       child.stdin.on("error", () => undefined);
       child.on("error", (error) => {
-        clearTimeout(timer);
+        settle();
         reject(error);
       });
       child.on("close", (exitCode) => {
-        clearTimeout(timer);
+        settle();
+        if (signal?.aborted) {
+          reject(signal.reason);
+          return;
+        }
         resolve({
           stdout: stdout.text(),
           stderr: stderr.text(),
