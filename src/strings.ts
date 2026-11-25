@@ -83,8 +83,10 @@ export const strings = {
   summarizeUsage:
     "요약할 링크나 글을 명령어와 함께 보내거나, 요약할 메시지에 답장하며 사용해 주세요.",
   replyNeedsText: "봇의 답변에는 내용을 입력해서 답장해 주세요.",
-  imageTooLarge: "이미지가 20MB를 넘어서 받을 수 없어요.",
-  imageDownloadFailed: "이미지를 받지 못했어요. 잠시 후 다시 시도해 주세요.",
+  fileTooLarge: "파일이 20MB를 넘어서 받을 수 없어요.",
+  fileDownloadFailed: "파일을 받지 못했어요. 잠시 후 다시 시도해 주세요.",
+  unsupportedFile: (name: string) =>
+    `${name}은(는) 지원하지 않는 형식이에요. 이미지, PDF, 텍스트 파일만 보낼 수 있어요.`,
   noCode: "실행할 코드가 없어요. 명령어 뒤에 코드를 쓰거나 코드가 담긴 메시지에 답장해 주세요.",
   quotedPrompt: (quote: string, prompt: string) =>
     `다음 메시지를 참고해 주세요.\n\n<quote>\n${quote}\n</quote>\n\n${prompt}`,

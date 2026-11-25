@@ -31,10 +31,12 @@ function toMessage(message: ChatMessage): ChatCompletionMessageParam {
       return {
         role: "user",
         content: [
-          ...message.images.map((image) => ({
-            type: "image_url" as const,
-            image_url: { url: `data:${image.mime};base64,${image.data.toString("base64")}` },
-          })),
+          ...message.images.map((image) => {
+            const url = `data:${image.mime};base64,${image.data.toString("base64")}`;
+            return image.mime === "application/pdf"
+              ? { type: "file" as const, file: { filename: "document.pdf", file_data: url } }
+              : { type: "image_url" as const, image_url: { url } };
+          }),
           ...(message.text !== "" ? [{ type: "text" as const, text: message.text }] : []),
         ],
       };

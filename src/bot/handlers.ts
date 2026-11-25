@@ -12,10 +12,11 @@ import { extractCode } from "../sandbox/code.ts";
 import type { Language } from "../sandbox/run.ts";
 import { strings } from "../strings.ts";
 import {
-  downloadImage,
+  downloadFile,
+  type FileRef,
   FileTooLargeError,
-  type ImageRef,
-  messageImages,
+  messageFiles,
+  UnsupportedFileError,
 } from "../telegram/files.ts";
 import type { Destination } from "../telegram/send.ts";
 import { dayOf } from "../time.ts";
@@ -82,23 +83,41 @@ function replyText(ctx: Context, text: string) {
   });
 }
 
-async function downloadImages(
+interface DownloadedFiles {
+  attachments: Attachment[];
+  texts: string[];
+}
+
+function downloadErrorText(err: unknown): string {
+  if (err instanceof FileTooLargeError) return strings.fileTooLarge;
+  if (err instanceof UnsupportedFileError) return strings.unsupportedFile(err.fileName);
+  return strings.fileDownloadFailed;
+}
+
+async function downloadFiles(
   ctx: Context,
   deps: Deps,
-  images: readonly ImageRef[],
-): Promise<Attachment[] | undefined> {
+  files: readonly FileRef[],
+): Promise<DownloadedFiles | undefined> {
   try {
-    const attachments: Attachment[] = [];
-    for (const image of images) {
-      attachments.push(await downloadImage(ctx.api, deps.config.telegram.botToken, image));
+    const downloaded: DownloadedFiles = { attachments: [], texts: [] };
+    for (const file of files) {
+      const content = await downloadFile(ctx.api, deps.config.telegram.botToken, file);
+      if (typeof content === "string") downloaded.texts.push(content);
+      else downloaded.attachments.push(content);
     }
-    return attachments;
+    return downloaded;
   } catch (err) {
-    const tooLarge = err instanceof FileTooLargeError;
-    if (!tooLarge) deps.logger.warn({ err }, "image download failed");
-    await replyText(ctx, tooLarge ? strings.imageTooLarge : strings.imageDownloadFailed);
+    if (!(err instanceof FileTooLargeError || err instanceof UnsupportedFileError)) {
+      deps.logger.warn({ err }, "file download failed");
+    }
+    await replyText(ctx, downloadErrorText(err));
     return undefined;
   }
+}
+
+function withFileTexts(texts: readonly string[], prompt: string): string {
+  return [...texts, prompt].filter((part) => part !== "").join("\n\n");
 }
 
 function insertPrompt(
@@ -137,11 +156,17 @@ async function continueChain(
     await replyText(ctx, strings.errors.noModel);
     return;
   }
-  const attachments = await downloadImages(ctx, deps, messageImages(message));
-  if (attachments === undefined) return;
+  const files = await downloadFiles(ctx, deps, messageFiles(message));
+  if (files === undefined) return;
   const quote = message.quote?.text;
   const prompt = quote !== undefined ? strings.partialQuotePrompt(quote, text) : text;
-  const promptNodeId = insertPrompt(deps, message, prompt, parent, attachments);
+  const promptNodeId = insertPrompt(
+    deps,
+    message,
+    withFileTexts(files.texts, prompt),
+    parent,
+    files.attachments,
+  );
   const userId = message.from?.id ?? 0;
   deps.tasks.track(
     (signal) =>
@@ -171,12 +196,19 @@ async function startConversation(
   deps: Deps,
   message: Message,
   prompt: string,
-  images: readonly ImageRef[],
+  fileRefs: readonly FileRef[],
   mode?: PromptMode,
 ) {
-  const attachments = await downloadImages(ctx, deps, images);
-  if (attachments === undefined) return;
-  const nodeId = insertPrompt(deps, message, prompt, undefined, attachments, mode);
+  const files = await downloadFiles(ctx, deps, fileRefs);
+  if (files === undefined) return;
+  const nodeId = insertPrompt(
+    deps,
+    message,
+    withFileTexts(files.texts, prompt),
+    undefined,
+    files.attachments,
+    mode,
+  );
   const userId = message.from?.id ?? 0;
   const id = randomBytes(6).toString("base64url");
   deps.repo.createPending({
@@ -205,10 +237,10 @@ function recentModel(deps: Deps, userId: number): string | undefined {
 
 async function handleAsk(ctx: Context, deps: Deps, message: Message, args: string) {
   const reply = realReply(message);
-  const ownImages = messageImages(message);
+  const ownFiles = messageFiles(message);
   if (reply === undefined) {
-    if (args === "" && ownImages.length === 0) await replyText(ctx, strings.askUsage);
-    else await startConversation(ctx, deps, message, args, ownImages);
+    if (args === "" && ownFiles.length === 0) await replyText(ctx, strings.askUsage);
+    else await startConversation(ctx, deps, message, args, ownFiles);
     return;
   }
   const node = deps.repo.nodeByMessage(message.chat.id, reply.message_id);
@@ -217,19 +249,19 @@ async function handleAsk(ctx: Context, deps: Deps, message: Message, args: strin
     else await continueChain(ctx, deps, message, node, args);
     return;
   }
-  const images = [...ownImages, ...messageImages(reply)];
+  const files = [...ownFiles, ...messageFiles(reply)];
   const quote = node?.text ?? reply.text ?? reply.caption ?? "";
-  if (quote === "" && args === "" && images.length === 0) {
+  if (quote === "" && args === "" && files.length === 0) {
     await replyText(ctx, strings.askUsage);
     return;
   }
   const prompt = args === "" ? quote : quote === "" ? args : strings.quotedPrompt(quote, args);
-  await startConversation(ctx, deps, message, prompt, images);
+  await startConversation(ctx, deps, message, prompt, files);
 }
 
 async function handleSummarize(ctx: Context, deps: Deps, message: Message, args: string) {
   const reply = realReply(message);
-  const images = [...messageImages(message), ...(reply === undefined ? [] : messageImages(reply))];
+  const files = [...messageFiles(message), ...(reply === undefined ? [] : messageFiles(reply))];
   const quote =
     reply === undefined
       ? ""
@@ -237,12 +269,12 @@ async function handleSummarize(ctx: Context, deps: Deps, message: Message, args:
         reply.text ??
         reply.caption ??
         "");
-  if (quote === "" && args === "" && images.length === 0) {
+  if (quote === "" && args === "" && files.length === 0) {
     await replyText(ctx, strings.summarizeUsage);
     return;
   }
   const prompt = args === "" ? quote : quote === "" ? args : strings.quotedPrompt(quote, args);
-  await startConversation(ctx, deps, message, prompt, images, "summarize");
+  await startConversation(ctx, deps, message, prompt, files, "summarize");
 }
 
 async function handleCode(

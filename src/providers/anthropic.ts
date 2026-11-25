@@ -43,14 +43,24 @@ function userContent(
   if (message.images === undefined) return message.text;
   return [
     ...message.images.map(
-      (image): ContentBlockParam => ({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: image.mime as ImageMediaType,
-          data: image.data.toString("base64"),
-        },
-      }),
+      (image): ContentBlockParam =>
+        image.mime === "application/pdf"
+          ? {
+              type: "document",
+              source: {
+                type: "base64",
+                media_type: "application/pdf",
+                data: image.data.toString("base64"),
+              },
+            }
+          : {
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: image.mime as ImageMediaType,
+                data: image.data.toString("base64"),
+              },
+            },
     ),
     ...(message.text !== "" ? [{ type: "text" as const, text: message.text }] : []),
   ];

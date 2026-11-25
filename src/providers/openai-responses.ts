@@ -32,11 +32,12 @@ function toInput(messages: readonly ChatMessage[]): ResponseInputItem[] {
           {
             role: "user",
             content: [
-              ...message.images.map((image) => ({
-                type: "input_image" as const,
-                detail: "auto" as const,
-                image_url: `data:${image.mime};base64,${image.data.toString("base64")}`,
-              })),
+              ...message.images.map((image) => {
+                const url = `data:${image.mime};base64,${image.data.toString("base64")}`;
+                return image.mime === "application/pdf"
+                  ? { type: "input_file" as const, filename: "document.pdf", file_data: url }
+                  : { type: "input_image" as const, detail: "auto" as const, image_url: url };
+              }),
               ...(message.text !== "" ? [{ type: "input_text" as const, text: message.text }] : []),
             ],
           },
